@@ -34,8 +34,8 @@ Requests==2.32.4
 # Tensor operations and utilities
 einops==0.8.1
 einops_exts==0.0.4
-flash_attn==2.7.0.post2
-natten==0.20.1
+# flash_attn==2.7.0.post2  # Skipped - compilation issues on this environment
+# natten==0.20.1          # Skipped - compilation issues on this environment
 x_transformers==2.4.9
 
 # Configuration and utilities

@@ -53,10 +53,9 @@ RUN pip3 install --no-cache-dir \
     numpy \
     einops
 
-# Install packages that require compilation (now that PyTorch is available)
+# Install packages that require compilation (skip flash_attn for now - optimization only)
 RUN pip3 install --no-cache-dir \
-    flash_attn==2.7.0.post2 \
-    natten==0.20.1
+    natten==0.20.1 || echo "Natten install failed, continuing without it"
 
 # Install remaining dependencies
 RUN pip3 install --no-cache-dir \
