@@ -46,15 +46,20 @@ RUN pip3 install --no-cache-dir \
     torchaudio==2.4.0+cu121 \
     --index-url https://download.pytorch.org/whl/cu121
 
-# Install packages that require compilation first (when CUDA tools are available)
+# Install core dependencies that flash_attn needs
+RUN pip3 install --no-cache-dir \
+    transformers==4.51.0 \
+    accelerate \
+    numpy \
+    einops
+
+# Install packages that require compilation (now that PyTorch is available)
 RUN pip3 install --no-cache-dir \
     flash_attn==2.7.0.post2 \
     natten==0.20.1
 
 # Install remaining dependencies
 RUN pip3 install --no-cache-dir \
-    transformers==4.51.0 \
-    accelerate \
     optimum \
     datasets \
     diffusers \
@@ -62,8 +67,6 @@ RUN pip3 install --no-cache-dir \
     librosa==0.10.1 \
     soundfile==0.13.1 \
     scipy \
-    numpy \
-    einops \
     inflect \
     phonemizer \
     Unidecode \
@@ -82,7 +85,7 @@ COPY . /app/
 RUN mkdir -p /app/models /app/cache
 
 # Set Python path to include src directory
-ENV PYTHONPATH=/app/src:/app:$PYTHONPATH
+ENV PYTHONPATH=/app/src:/app
 
 # Expose inference server port
 EXPOSE 8000
