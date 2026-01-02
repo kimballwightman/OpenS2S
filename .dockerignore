@@ -1,0 +1,53 @@
+# Reduce Docker build context size
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.DS_Store
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Documentation and examples
+*.md
+README*
+CHANGELOG*
+LICENSE*
+docs/
+examples/
+tests/
+
+# Large model files (if any)
+*.bin
+*.safetensors
+*.pt
+*.pth
+models/
+cache/
+checkpoints/
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
