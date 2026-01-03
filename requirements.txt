@@ -41,7 +41,7 @@ x_transformers==2.4.9
 # Configuration and utilities
 omegaconf==2.3.0
 PyYAML==6.0.2
-HyperPyYAML==1.2.2
+hyperpyyaml==1.2.2
 fire==0.7.0
 rich==14.0.0
 tqdm==4.66.5
