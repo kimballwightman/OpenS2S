@@ -1,7 +1,7 @@
 # OpenS2S Inference Server - GPU VM Dockerfile
 # Optimized for g2-standard-4 with NVIDIA L4, CUDA 12.2
 
-FROM nvidia/cuda:12.2.2-cudnn8-devel-ubuntu24.04
+FROM nvidia/cuda:12.2.2-cudnn8-devel-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -13,12 +13,9 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and Python 3.11
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    python3-dev \
-    python3-setuptools \
+    software-properties-common \
     git \
     wget \
     curl \
@@ -29,36 +26,44 @@ RUN apt-get update && apt-get install -y \
     make \
     cmake \
     ninja-build \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y \
+    python3.11 \
+    python3.11-pip \
+    python3.11-dev \
+    python3.11-distutils \
     && rm -rf /var/lib/apt/lists/*
 
-# Create symlink for python
-RUN ln -s /usr/bin/python3 /usr/bin/python
+# Create symlinks for python
+RUN ln -s /usr/bin/python3.11 /usr/bin/python3 && \
+    ln -s /usr/bin/python3.11 /usr/bin/python
 
 # Copy requirements first for better Docker caching
 COPY requirements.txt /app/
 
 # Upgrade pip and setuptools for compilation
-RUN pip3 install --upgrade pip setuptools wheel
+RUN python3.11 -m pip install --upgrade pip setuptools wheel
 
 # Install PyTorch with CUDA 12.1 support (compatible with CUDA 12.2)
-RUN pip3 install --no-cache-dir \
+RUN python3.11 -m pip install --no-cache-dir \
     torch==2.4.0+cu121 \
     torchaudio==2.4.0+cu121 \
     --index-url https://download.pytorch.org/whl/cu121
 
 # Install core dependencies that flash_attn needs
-RUN pip3 install --no-cache-dir \
+RUN python3.11 -m pip install --no-cache-dir \
     transformers==4.51.0 \
     accelerate \
     numpy==2.3.1 \
     einops
 
 # Install packages that require compilation (skip flash_attn for now - optimization only)
-RUN pip3 install --no-cache-dir \
+RUN python3.11 -m pip install --no-cache-dir \
     natten==0.20.1 || echo "Natten install failed, continuing without it"
 
 # Install remaining dependencies
-RUN pip3 install --no-cache-dir \
+RUN python3.11 -m pip install --no-cache-dir \
     optimum \
     datasets \
     diffusers \
@@ -76,7 +81,7 @@ RUN pip3 install --no-cache-dir \
     pydantic
 
 # Install remaining OpenS2S requirements (skip already installed packages)
-RUN pip3 install --no-cache-dir -r requirements.txt || true
+RUN python3.11 -m pip install --no-cache-dir -r requirements.txt || true
 
 # Copy OpenS2S source code
 COPY . /app/
@@ -98,4 +103,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 RUN chmod +x /app/model_worker.py
 
 # Run original OpenS2S model worker (for testing original implementation)
-CMD ["python3", "model_worker.py", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python3.11", "model_worker.py", "--host", "0.0.0.0", "--port", "8000"]
