@@ -63,6 +63,9 @@ RUN pip3 install --no-cache-dir \
 RUN pip3 install --no-cache-dir \
     natten==0.20.1 || echo "Natten install failed, continuing without it"
 
+# Install HyperPyYAML explicitly (critical dependency)
+RUN pip3 install --no-cache-dir HyperPyYAML==1.2.2
+
 # Install remaining dependencies
 RUN pip3 install --no-cache-dir \
     optimum \
@@ -75,7 +78,6 @@ RUN pip3 install --no-cache-dir \
     inflect \
     phonemizer \
     Unidecode \
-    HyperPyYAML==1.2.2 \
     fastapi==0.116.0 \
     uvicorn==0.35.0 \
     aiofiles \
