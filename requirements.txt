@@ -69,6 +69,7 @@ Cython>=3.0.0
 tn==0.0.5
 ttsfrd==0.1.0
 wids==0.1.11
+huggingface_hub>=0.24.0
 
 # Gradio for web demo (optional)
 gradio>=5.35.0
