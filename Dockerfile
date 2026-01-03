@@ -63,10 +63,20 @@ RUN pip3 install --no-cache-dir \
 RUN pip3 install --no-cache-dir \
     natten==0.20.1 || echo "Natten install failed, continuing without it"
 
-# Install critical dependencies explicitly
-RUN pip3 install --no-cache-dir HyperPyYAML==1.1.0
-RUN pip3 install --no-cache-dir omegaconf==2.3.0
-RUN pip3 install --no-cache-dir conformer==0.3.2
+# Install critical dependencies explicitly (common import failures)
+RUN pip3 install --no-cache-dir \
+    HyperPyYAML==1.1.0 \
+    omegaconf==2.3.0 \
+    conformer==0.3.2 \
+    einops==0.8.1 \
+    fire==0.7.0 \
+    rich==14.0.0 \
+    tqdm==4.66.5 \
+    librosa==0.10.1 \
+    soundfile==0.13.1 \
+    inflect \
+    phonemizer==3.3.0 \
+    Unidecode==1.3.8
 
 # Install remaining dependencies
 RUN pip3 install --no-cache-dir \
