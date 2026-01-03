@@ -94,7 +94,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Set proper permissions
-RUN chmod +x /app/inference_server.py
+RUN chmod +x /app/model_worker.py
 
-# Run inference server
-CMD ["python3", "inference_server.py"]
+# Run original OpenS2S model worker (for testing original implementation)
+CMD ["python3", "model_worker.py", "--host", "0.0.0.0", "--port", "8000"]
