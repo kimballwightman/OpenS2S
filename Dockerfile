@@ -76,7 +76,13 @@ RUN pip3 install --no-cache-dir \
     soundfile==0.13.1 \
     inflect \
     phonemizer==3.3.0 \
-    Unidecode==1.3.8
+    Unidecode==1.3.8 \
+    hydra-core \
+    pytorch-lightning \
+    torchmetrics \
+    matplotlib \
+    seaborn \
+    scipy
 
 # Install remaining dependencies
 RUN pip3 install --no-cache-dir \
