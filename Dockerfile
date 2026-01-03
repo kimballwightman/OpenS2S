@@ -50,7 +50,7 @@ RUN pip3 install --no-cache-dir \
 RUN pip3 install --no-cache-dir \
     transformers==4.51.0 \
     accelerate \
-    numpy \
+    numpy==2.3.1 \
     einops
 
 # Install packages that require compilation (skip flash_attn for now - optimization only)
@@ -69,6 +69,7 @@ RUN pip3 install --no-cache-dir \
     inflect \
     phonemizer \
     Unidecode \
+    HyperPyYAML==1.2.2 \
     fastapi==0.116.0 \
     uvicorn==0.35.0 \
     aiofiles \
