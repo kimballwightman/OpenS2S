@@ -1,7 +1,7 @@
 # OpenS2S Inference Server - GPU VM Dockerfile
 # Optimized for g2-standard-4 with NVIDIA L4, CUDA 12.2
 
-FROM nvidia/cuda:12.2.2-cudnn8-devel-ubuntu22.04
+FROM nvidia/cuda:12.2.2-cudnn8-devel-ubuntu24.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
