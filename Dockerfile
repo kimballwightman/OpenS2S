@@ -64,7 +64,7 @@ RUN pip3 install --no-cache-dir \
     natten==0.20.1 || echo "Natten install failed, continuing without it"
 
 # Install HyperPyYAML explicitly (critical dependency)
-RUN pip3 install --no-cache-dir HyperPyYAML==1.2.0
+RUN pip3 install --no-cache-dir HyperPyYAML==1.1.0
 
 # Install remaining dependencies
 RUN pip3 install --no-cache-dir \
