@@ -425,6 +425,12 @@ async def get_status(request: Request):
     return worker.get_status()
 
 
+@app.get("/health")
+async def health():
+    """Simple health check endpoint for Docker healthcheck and iOS connection testing"""
+    return {"status": "healthy", "service": "model_worker"}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="localhost")
