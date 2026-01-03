@@ -71,7 +71,7 @@ RUN pip3 install --no-cache-dir \
     optimum \
     datasets \
     diffusers \
-    peft \
+    peft==0.4.0 \
     librosa==0.10.1 \
     soundfile==0.13.1 \
     scipy \
