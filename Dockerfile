@@ -63,7 +63,7 @@ RUN pip3 install --no-cache-dir \
 RUN pip3 install --no-cache-dir \
     natten==0.20.1 || echo "Natten install failed, continuing without it"
 
-# Install critical dependencies explicitly (common import failures)
+# Install ALL dependencies explicitly to avoid conflicts
 RUN pip3 install --no-cache-dir \
     HyperPyYAML==1.1.0 \
     omegaconf==2.3.0 \
@@ -78,31 +78,33 @@ RUN pip3 install --no-cache-dir \
     phonemizer==3.3.0 \
     Unidecode==1.3.8 \
     hydra-core \
-    pytorch-lightning \
+    lightning==2.5.1 \
     torchmetrics \
     matplotlib \
     seaborn \
-    scipy
-
-# Install remaining dependencies
-RUN pip3 install --no-cache-dir \
-    optimum \
-    datasets \
-    diffusers \
-    peft==0.4.0 \
-    librosa==0.10.1 \
-    soundfile==0.13.1 \
     scipy \
-    inflect \
-    phonemizer \
-    Unidecode \
+    optimum \
+    datasets==3.0.1 \
+    diffusers==0.32.2 \
+    peft==0.4.0 \
+    safetensors==0.5.3 \
     fastapi==0.116.0 \
     uvicorn==0.35.0 \
     aiofiles \
-    pydantic
+    pydantic \
+    requests==2.32.4 \
+    huggingface_hub \
+    wandb==0.21.0 \
+    gradio \
+    gdown==5.2.0 \
+    wget==3.2 \
+    pyarrow \
+    setuptools \
+    Cython \
+    whisper==1.1.10
 
-# Install remaining OpenS2S requirements (skip already installed packages)
-RUN pip3 install --no-cache-dir -r requirements.txt || true
+# Skip requirements.txt to avoid conflicts
+# RUN pip3 install --no-cache-dir -r requirements.txt || true
 
 # Copy OpenS2S source code
 COPY . /app/
