@@ -76,6 +76,30 @@ def ensure_models_available():
         print(f"❌ Only {success_count}/{len(MODELS_CONFIG)} models are available")
         return False
 
+def start_controller():
+    """Start the controller in the background."""
+
+    print("🎮 Starting controller...")
+
+    # Start controller in background
+    controller_process = subprocess.Popen(
+        ["python3", "controller.py", "--host", "0.0.0.0", "--port", "21001"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+
+    # Wait a bit for controller to start
+    import time
+    time.sleep(3)
+
+    # Check if controller is still running
+    if controller_process.poll() is not None:
+        print("❌ Controller failed to start")
+        sys.exit(1)
+
+    print("✅ Controller started on port 21001")
+    return controller_process
+
 def start_model_worker():
     """Start the OpenS2S model worker with correct model paths."""
 
@@ -85,14 +109,15 @@ def start_model_worker():
     opens2s_model_path = f"{MODELS_DIR}/OpenS2S"
     decoder_model_path = f"{MODELS_DIR}/glm-4-voice-decoder"
 
-    # Build command arguments
+    # Build command arguments - REMOVED --no-register so worker connects to controller
     cmd = [
         "python3", "model_worker.py",
         "--host", "0.0.0.0",
         "--port", "8000",
         "--model-path", opens2s_model_path,
         "--flow-path", decoder_model_path,
-        "--no-register"  # Skip controller registration for standalone mode
+        "--controller-address", "http://localhost:21001",
+        "--worker-address", "http://localhost:8000"
     ]
 
     print(f"🔧 Command: {' '.join(cmd)}")
@@ -109,18 +134,26 @@ def start_model_worker():
         sys.exit(1)
 
 if __name__ == "__main__":
+    controller_process = None
     try:
         # Step 1: Ensure models are downloaded
         if not ensure_models_available():
             print("❌ Cannot start without required models")
             sys.exit(1)
 
-        # Step 2: Start inference server
+        # Step 2: Start controller
+        controller_process = start_controller()
+
+        # Step 3: Start model worker (will register with controller)
         start_model_worker()
 
     except KeyboardInterrupt:
         print("\n👋 Startup interrupted by user")
+        if controller_process:
+            controller_process.terminate()
         sys.exit(0)
     except Exception as e:
         print(f"💥 Startup failed: {e}")
+        if controller_process:
+            controller_process.terminate()
         sys.exit(1)
