@@ -700,7 +700,7 @@ async def handle_manual_trigger(session_id: str):
             }
 
             # Use existing model pipeline for generation
-            async for response_chunk in worker.generate_stream_gate(params):
+            for response_chunk in worker.generate_stream_gate(params):
                 # Parse response chunk (null-terminated JSON)
                 if response_chunk.endswith(b"\0"):
                     response_data = json.loads(response_chunk[:-1].decode())
@@ -715,6 +715,9 @@ async def handle_manual_trigger(session_id: str):
                     # Check if generation is complete
                     if response_data.get("finalize", False):
                         break
+
+                # Yield control to event loop to keep async context responsive
+                await asyncio.sleep(0)
 
         finally:
             model_semaphore.release()
