@@ -89,7 +89,8 @@ RUN pip3 install --no-cache-dir \
     peft==0.4.0 \
     safetensors==0.5.3 \
     fastapi==0.116.0 \
-    uvicorn==0.35.0 \
+    uvicorn[standard]==0.35.0 \
+    websockets \
     aiofiles \
     pydantic \
     requests==2.32.4 \
