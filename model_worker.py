@@ -118,8 +118,16 @@ def load_pretrained_model(model_path):
     tts_tokenizer = AutoTokenizer.from_pretrained(os.path.join(model_path, "tts"))
     generation_config = GenerationConfig.from_pretrained(model_path)
     tts_generation_config = GenerationConfig.from_pretrained(os.path.join(model_path, "tts"))
-    model = OmniSpeechModel.from_pretrained(model_path, torch_dtype=torch.bfloat16)
-    model.cuda()
+
+    # Load model with 8-bit quantization for memory optimization
+    # Reduces VRAM usage from ~21GB (bf16) to ~10-11GB (int8)
+    model = OmniSpeechModel.from_pretrained(
+        model_path,
+        load_in_8bit=True,
+        device_map="auto",
+        torch_dtype=torch.bfloat16  # Use bf16 for non-quantized components
+    )
+
     return tokenizer, tts_tokenizer, model, generation_config, tts_generation_config
 
 def load_flow_model(flow_path):
@@ -720,6 +728,10 @@ async def handle_manual_trigger(session_id: str):
                 await asyncio.sleep(0)
 
         finally:
+            # Clear CUDA cache after generation to free memory for next request
+            # This preserves conversation context (stored as text/audio) while
+            # freeing GPU memory used for temporary tensors during inference
+            torch.cuda.empty_cache()
             model_semaphore.release()
 
     except Exception as e:
