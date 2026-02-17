@@ -119,18 +119,22 @@ def load_pretrained_model(model_path):
     generation_config = GenerationConfig.from_pretrained(model_path)
     tts_generation_config = GenerationConfig.from_pretrained(os.path.join(model_path, "tts"))
 
-    # Load model with 8-bit quantization for memory optimization
-    # Reduces VRAM usage from ~21GB (bf16) to ~10-11GB (int8)
+    # Load model with 4-bit quantization for maximum memory optimization
+    # Reduces VRAM usage from ~21GB (bf16) to ~5-6GB (int4)
     quantization_config = BitsAndBytesConfig(
-        load_in_8bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16  # Use bf16 for computation
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",  # NormalFloat4 - best for Qwen stability
+        bnb_4bit_use_double_quant=True,  # Extra compression, no quality hit
+        bnb_4bit_compute_dtype=torch.bfloat16  # Matches model, avoids FP16 cast
     )
 
     model = OmniSpeechModel.from_pretrained(
         model_path,
         quantization_config=quantization_config,
         device_map="auto",
-        torch_dtype=torch.bfloat16
+        torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
+        max_memory={0: "12GiB"}  # Model + buffer = 12GB, leaves ~10GB for concurrent sessions
     )
 
     return tokenizer, tts_tokenizer, model, generation_config, tts_generation_config
