@@ -24,7 +24,7 @@ import uvicorn
 import numpy as np
 from functools import partial
 
-from transformers import AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig, BitsAndBytesConfig
 from transformers import TextIteratorStreamer
 from transformers import GenerationConfig
 from transformers.generation.streamers import BaseStreamer
@@ -121,11 +121,16 @@ def load_pretrained_model(model_path):
 
     # Load model with 8-bit quantization for memory optimization
     # Reduces VRAM usage from ~21GB (bf16) to ~10-11GB (int8)
+    quantization_config = BitsAndBytesConfig(
+        load_in_8bit=True,
+        bnb_4bit_compute_dtype=torch.bfloat16  # Use bf16 for computation
+    )
+
     model = OmniSpeechModel.from_pretrained(
         model_path,
-        load_in_8bit=True,
+        quantization_config=quantization_config,
         device_map="auto",
-        torch_dtype=torch.bfloat16  # Use bf16 for non-quantized components
+        torch_dtype=torch.bfloat16
     )
 
     return tokenizer, tts_tokenizer, model, generation_config, tts_generation_config

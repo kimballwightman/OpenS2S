@@ -89,7 +89,7 @@ RUN pip3 install --no-cache-dir \
     diffusers==0.32.2 \
     peft==0.4.0 \
     safetensors==0.5.3 \
-    bitsandbytes==0.43.0 \
+    bitsandbytes==0.44.1 \
     fastapi==0.116.0 \
     uvicorn[standard]==0.35.0 \
     websockets \
