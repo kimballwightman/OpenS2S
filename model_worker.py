@@ -39,14 +39,6 @@ from src.modeling_omnispeech import OmniSpeechModel
 from src.utils import get_waveform
 from src.feature_extraction_audio import WhisperFeatureExtractor
 
-# WavLM processor for streaming mode
-try:
-    from transformers import Wav2Vec2FeatureExtractor, WavLMModel
-    WAVLM_AVAILABLE = True
-except ImportError:
-    logger.warning("WavLM not available. Install transformers[torch] for streaming mode support.")
-    WAVLM_AVAILABLE = False
-
 sys.path.append("cosyvoice")
 sys.path.append("third_party/Matcha-TTS")
 
@@ -63,6 +55,14 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger("worker")
+
+# WavLM processor for streaming mode (import after logger setup)
+try:
+    from transformers import Wav2Vec2FeatureExtractor, WavLMModel
+    WAVLM_AVAILABLE = True
+except ImportError:
+    logger.warning("WavLM not available. Install transformers[torch] for streaming mode support.")
+    WAVLM_AVAILABLE = False
 
 server_error_msg = "**NETWORK ERROR DUE TO HIGH TRAFFIC. PLEASE REGENERATE OR REFRESH THIS PAGE.**"
 
@@ -113,7 +113,14 @@ def pretty_print_semaphore(semaphore):
         return "None"
     return f"Semaphore(value={semaphore._value}, locked={semaphore.locked()})"
 
-def load_pretrained_model(model_path):
+def load_pretrained_model(model_path, audio_processor_type="whisper"):
+    """
+    Load OmniSpeech model with quantization and optional WavLM audio encoder.
+
+    Args:
+        model_path: Path to pretrained model
+        audio_processor_type: "whisper" (default) or "wavlm"
+    """
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     tts_tokenizer = AutoTokenizer.from_pretrained(os.path.join(model_path, "tts"))
     generation_config = GenerationConfig.from_pretrained(model_path)
@@ -137,6 +144,21 @@ def load_pretrained_model(model_path):
         max_memory={0: "12GiB"}  # Model + buffer = 12GB, leaves ~10GB for concurrent sessions
     )
 
+    # Replace audio encoder with WavLM if requested
+    if audio_processor_type == "wavlm":
+        from src.modeling_audio_encoder import WavLMEncoder
+
+        logger.info("🔄 Replacing Whisper encoder with WavLM...")
+
+        # Load WavLM encoder
+        wavlm_encoder = WavLMEncoder.from_pretrained("microsoft/wavlm-base-plus")
+
+        # Replace Whisper encoder in model
+        model.audio_encoder_model = wavlm_encoder.to(model.device)
+
+        logger.info("✅ WavLM encoder loaded - VRAM saved: ~3-5GB")
+        logger.info(f"   Audio encoder type: {type(model.audio_encoder_model).__name__}")
+
     return tokenizer, tts_tokenizer, model, generation_config, tts_generation_config
 
 def load_flow_model(flow_path):
@@ -157,9 +179,9 @@ class ModelWorker:
         self.model_name = model_name
         self.audio_processor_type = audio_processor
 
-        # Load main models
+        # Load main models (with optional WavLM encoder replacement)
         self.tokenizer, self.tts_tokenizer, self.model, self.generation_config,\
-            self.tts_generation_config = load_pretrained_model(model_path)
+            self.tts_generation_config = load_pretrained_model(model_path, audio_processor)
 
         # Initialize audio processors based on configuration
         self._init_audio_processors(model_path, audio_processor)
@@ -344,17 +366,30 @@ class ModelWorker:
         input_ids = torch.LongTensor(input_ids).unsqueeze(0)
 
         if audios:
-            speech_inputs = self.audio_extractor(
-                audios,
-                sampling_rate=self.audio_extractor.sampling_rate,
-                return_attention_mask=True,
-                return_tensors="pt"
-            )
-            speech_values = speech_inputs.input_features
-            speech_mask = speech_inputs.attention_mask
+            if self.audio_processor_type == "wavlm":
+                # WavLM expects raw audio waveform, not mel-spectrograms
+                speech_inputs = self.audio_extractor(
+                    audios,  # List of raw waveforms (numpy arrays)
+                    sampling_rate=16000,
+                    return_attention_mask=True,
+                    return_tensors="pt"
+                )
+                # WavLM feature extractor returns input_values (raw audio)
+                speech_values = speech_inputs.input_values
+                speech_mask = speech_inputs.attention_mask
+            else:
+                # Whisper: mel-spectrogram extraction (existing code)
+                speech_inputs = self.audio_extractor(
+                    audios,
+                    sampling_rate=self.audio_extractor.sampling_rate,
+                    return_attention_mask=True,
+                    return_tensors="pt"
+                )
+                speech_values = speech_inputs.input_features  # Mel-spectrograms
+                speech_mask = speech_inputs.attention_mask
         else:
             speech_values, speech_mask = None, None
-        
+
         return input_ids, speech_values, speech_mask
 
     @torch.inference_mode()
@@ -693,11 +728,11 @@ async def handle_manual_trigger(session_id: str):
         await model_semaphore.acquire()
 
         try:
-            # Get current audio context window
+            # Get current audio context window (30s)
             audio_window = session["audio_buffer"].get_current_window()
 
-            # Convert to format expected by model (create a messages structure)
-            # For now, we'll convert the audio window to base64 WAV format
+            # Convert to WAV format (works for both Whisper and WavLM)
+            # get_input_params() will handle the appropriate extraction
             audio_wav_bytes = convert_float32_to_wav(audio_window, sample_rate=16000)
             audio_base64 = base64.b64encode(audio_wav_bytes).decode()
 

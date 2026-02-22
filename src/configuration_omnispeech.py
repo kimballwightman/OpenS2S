@@ -22,7 +22,14 @@ class OmniSpeechConfig(PretrainedConfig):
     ):
         if isinstance(audio_encoder_config, dict):
             if "model_type" in audio_encoder_config:
-                pass
+                # Set defaults for WavLM if specified
+                if audio_encoder_config["model_type"] == "wavlm":
+                    audio_encoder_config.setdefault("hidden_size", 768)  # WavLM internal dimension
+                    audio_encoder_config.setdefault("d_model", 1280)  # Output dimension after projection (matches Whisper)
+                    audio_encoder_config.setdefault("num_hidden_layers", 12)
+                    audio_encoder_config.setdefault("max_source_positions", 1500)
+                    audio_encoder_config.setdefault("num_attention_heads", 12)
+                    audio_encoder_config.setdefault("intermediate_size", 3072)
             else:
                 logger.info("audio encoder config is None. Initializing with qwen2_audio_encoder")
                 audio_encoder_config["model_type"] = "qwen2_audio_encoder"
