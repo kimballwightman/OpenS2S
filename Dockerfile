@@ -118,8 +118,8 @@ RUN mkdir -p /app/models /app/cache
 # Set Python path to include src directory
 ENV PYTHONPATH=/app/src:/app
 
-# Expose inference server port
-EXPOSE 8000
+# Expose inference server port and controller port
+EXPOSE 8000 21001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

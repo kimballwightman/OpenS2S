@@ -117,7 +117,8 @@ def start_model_worker():
         "--model-path", opens2s_model_path,
         "--flow-path", decoder_model_path,
         "--controller-address", "http://localhost:21001",
-        "--worker-address", "http://localhost:8000"
+        "--worker-address", "http://localhost:8000",
+        "--audio-processor", "wavlm"  # Use WavLM encoder (saves 3-5GB VRAM vs Whisper)
     ]
 
     print(f"🔧 Command: {' '.join(cmd)}")
