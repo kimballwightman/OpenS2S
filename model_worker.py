@@ -128,10 +128,10 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
         - 8-bit LLM only: ~10-12GB (target)
         - With WavLM: ~8-10GB (removes Whisper 3-5GB)
     """
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    tts_tokenizer = AutoTokenizer.from_pretrained(os.path.join(model_path, "tts"))
-    generation_config = GenerationConfig.from_pretrained(model_path)
-    tts_generation_config = GenerationConfig.from_pretrained(os.path.join(model_path, "tts"))
+    tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
+    tts_tokenizer = AutoTokenizer.from_pretrained(os.path.join(model_path, "tts"), local_files_only=True)
+    generation_config = GenerationConfig.from_pretrained(model_path, local_files_only=True)
+    tts_generation_config = GenerationConfig.from_pretrained(os.path.join(model_path, "tts"), local_files_only=True)
 
     # 8-bit quantization config (better quality than 4-bit)
     quantization_config = BitsAndBytesConfig(
@@ -148,7 +148,8 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
         model_path,
         torch_dtype=torch.bfloat16,
         low_cpu_mem_usage=True,
-        device_map={"": "cpu"}  # Keep on CPU for now
+        device_map={"": "cpu"},  # Keep on CPU for now
+        local_files_only=True
     )
 
     # Step 2: Replace LLM with 8-bit quantized version
@@ -172,7 +173,8 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
             temp_dir,
             quantization_config=quantization_config,
             device_map="auto",
-            torch_dtype=torch.bfloat16
+            torch_dtype=torch.bfloat16,
+            local_files_only=True
         )
 
         # Replace LLM in model
