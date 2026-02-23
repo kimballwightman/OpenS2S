@@ -116,9 +116,9 @@ def pretty_print_semaphore(semaphore):
 
 def load_pretrained_model(model_path, audio_processor_type="whisper"):
     """
-    Load OmniSpeech model with optional AWQ-quantized LLM.
+    Load OmniSpeech model with optional GPTQ-quantized LLM.
 
-    If AWQ-quantized LLM exists at /models/OpenS2S-llm-awq/, it will be used.
+    If GPTQ-quantized LLM exists at /models/OpenS2S-llm-gptq/, it will be used.
     Otherwise, loads the full precision model from model_path.
 
     Args:
@@ -126,12 +126,12 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
         audio_processor_type: "whisper" (default) or "wavlm"
 
     Memory Profile:
-        - With AWQ-quantized LLM: ~8-10GB
+        - With GPTQ-quantized LLM (8-bit): ~12-14GB
         - Original (bf16): ~14-21GB
     """
-    # Check for AWQ-quantized LLM
-    awq_llm_path = "/models/OpenS2S-llm-awq"
-    use_awq_llm = os.path.exists(awq_llm_path) and os.listdir(awq_llm_path)
+    # Check for GPTQ-quantized LLM
+    gptq_llm_path = "/models/OpenS2S-llm-gptq"
+    use_gptq_llm = os.path.exists(gptq_llm_path) and os.listdir(gptq_llm_path)
 
     tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
     tts_tokenizer = AutoTokenizer.from_pretrained(os.path.join(model_path, "tts"), local_files_only=True)
@@ -151,37 +151,37 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
 
     logger.info("✅ Base model loaded from disk")
 
-    # Replace LLM with AWQ-quantized version if available
-    if use_awq_llm:
-        logger.info(f"🔄 Loading AWQ-quantized LLM from {awq_llm_path}...")
+    # Replace LLM with GPTQ-quantized version if available
+    if use_gptq_llm:
+        logger.info(f"🔄 Loading GPTQ-quantized LLM from {gptq_llm_path}...")
 
         try:
-            from awq import AutoAWQForCausalLM
+            from auto_gptq import AutoGPTQForCausalLM
 
             # Load quantized LLM
-            quantized_llm = AutoAWQForCausalLM.from_quantized(
-                awq_llm_path,
-                fuse_layers=True,
-                safetensors=True
+            quantized_llm = AutoGPTQForCausalLM.from_quantized(
+                gptq_llm_path,
+                device="cuda:0",
+                use_safetensors=True
             )
 
             # Replace LLM in model
             del model.llm_model
-            model.llm_model = quantized_llm.model  # Extract the actual model from AWQ wrapper
+            model.llm_model = quantized_llm
 
-            logger.info("✅ AWQ-quantized LLM loaded (4-bit, ~4-5GB)")
-            logger.info("   Expected total VRAM: ~8-10GB")
+            logger.info("✅ GPTQ-quantized LLM loaded (8-bit, ~8-10GB)")
+            logger.info("   Expected total VRAM: ~12-14GB")
 
         except ImportError:
-            logger.warning("⚠️  AutoAWQ not installed, using full precision LLM")
-            logger.info("   Install with: pip install autoawq")
+            logger.warning("⚠️  AutoGPTQ not installed, using full precision LLM")
+            logger.info("   Install with: pip install auto-gptq")
         except Exception as e:
-            logger.warning(f"⚠️  Failed to load AWQ LLM: {e}")
+            logger.warning(f"⚠️  Failed to load GPTQ LLM: {e}")
             logger.info("   Using full precision LLM")
     else:
-        logger.info("💡 No AWQ-quantized LLM found")
+        logger.info("💡 No GPTQ-quantized LLM found")
         logger.info("   Using full precision LLM (~14-21GB total VRAM)")
-        logger.info("   Run quantize_llm_awq.py to create quantized version")
+        logger.info("   Run quantize_llm_gptq.py to create quantized version")
 
     # Replace audio encoder with WavLM if requested
     if audio_processor_type == "wavlm":
@@ -210,7 +210,7 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
 
     logger.info("✅ Model loading complete")
     logger.info(f"   Audio Encoder: {audio_processor_type}")
-    logger.info(f"   LLM: {'AWQ-quantized (4-bit)' if use_awq_llm else 'Full precision (bf16)'}")
+    logger.info(f"   LLM: {'GPTQ-quantized (8-bit)' if use_gptq_llm else 'Full precision (bf16)'}")
     logger.info(f"   Ready for inference")
 
     return tokenizer, tts_tokenizer, model, generation_config, tts_generation_config

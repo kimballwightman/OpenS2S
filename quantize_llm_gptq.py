@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-AWQ Quantization Script for OmniSpeech LLM
-==========================================
+GPTQ Quantization Script for OmniSpeech LLM
+============================================
 
 This script extracts the Qwen LLM from the unified OmniSpeech checkpoint
-and quantizes it to 4-bit using AutoAWQ for persistent on-disk quantization.
+and quantizes it to 8-bit using AutoGPTQ for persistent on-disk quantization.
 
 Requirements:
-    pip install autoawq
+    pip install auto-gptq
 
 Usage:
-    python3 quantize_llm_awq.py
+    python3 quantize_llm_gptq.py
 
 Expected output:
-    - Quantized LLM saved to /models/OpenS2S-llm-awq/ (~4-5GB)
+    - Quantized LLM saved to /models/OpenS2S-llm-gptq/ (~8-10GB)
     - Faster loading: 30-60s vs 2-5min
-    - Memory savings: ~10GB total model size vs 21GB
+    - Memory savings: ~12-14GB total model size vs 21GB
 """
 
 import os
@@ -29,7 +29,7 @@ from src.modeling_omnispeech import OmniSpeechModel
 
 SOURCE_PATH = "/models/OpenS2S"
 LLM_TEMP_PATH = "/models/OpenS2S-llm-temp"
-LLM_AWQ_PATH = "/models/OpenS2S-llm-awq"
+LLM_GPTQ_PATH = "/models/OpenS2S-llm-gptq"
 
 def extract_llm_checkpoint():
     """Extract LLM weights from unified OmniSpeech checkpoint."""
@@ -104,72 +104,91 @@ def extract_llm_checkpoint():
 
     return LLM_TEMP_PATH
 
-def quantize_with_awq(llm_checkpoint_path):
-    """Quantize LLM using AutoAWQ."""
+def quantize_with_gptq(llm_checkpoint_path):
+    """Quantize LLM using AutoGPTQ."""
     print("=" * 70)
-    print("🔧 Step 2/3: Quantizing LLM with AutoAWQ")
+    print("🔧 Step 2/3: Quantizing LLM with AutoGPTQ (8-bit)")
     print("=" * 70)
     print()
 
     try:
-        from awq import AutoAWQForCausalLM
+        from auto_gptq import AutoGPTQForCausalLM, BaseQuantizeConfig
         from transformers import AutoTokenizer
     except ImportError:
-        print("❌ Error: AutoAWQ not installed")
+        print("❌ Error: AutoGPTQ not installed")
         print()
         print("Install with:")
-        print("    pip install autoawq")
+        print("    pip install auto-gptq")
         print()
         sys.exit(1)
 
     print("Loading LLM for quantization...")
     print("This may take 1-2 minutes...")
 
-    # Load model and tokenizer
-    model = AutoAWQForCausalLM.from_pretrained(
-        llm_checkpoint_path,
-        device_map="cpu",
-        safetensors=True
-    )
-
+    # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
         llm_checkpoint_path,
         trust_remote_code=True
     )
 
+    print("✅ Tokenizer loaded")
+    print()
+
+    # Quantization config for 8-bit
+    quantize_config = BaseQuantizeConfig(
+        bits=8,
+        group_size=128,
+        desc_act=False,  # Disable activation ordering for faster quantization
+        damp_percent=0.01
+    )
+
+    print("Loading model with quantization config...")
+    # Load model with quantization config
+    model = AutoGPTQForCausalLM.from_pretrained(
+        llm_checkpoint_path,
+        quantize_config=quantize_config,
+        device_map="auto"  # Will use GPU for quantization
+    )
+
     print("✅ LLM loaded for quantization")
     print()
 
-    # Quantization config
-    quant_config = {
-        "zero_point": True,
-        "q_group_size": 128,
-        "w_bit": 4,
-        "version": "GEMM"
-    }
-
-    print("Quantizing to 4-bit AWQ...")
-    print("This may take 3-5 minutes...")
+    print("Quantizing to 8-bit GPTQ...")
+    print("This may take 5-10 minutes...")
     print()
 
-    # Note: AWQ requires calibration data for best results
-    # For now, we'll use a simple quantization without calibration
-    # For production, you'd want to provide representative samples
+    # Prepare calibration data (simple approach - a few sample texts)
+    calibration_texts = [
+        "Hello, how are you today?",
+        "I would like to learn more about artificial intelligence.",
+        "The weather is nice today.",
+        "Can you help me with a programming question?",
+        "What is the capital of France?"
+    ]
 
-    model.quantize(tokenizer, quant_config=quant_config)
+    # Tokenize calibration data
+    examples = []
+    for text in calibration_texts:
+        example = tokenizer(text, return_tensors="pt")
+        examples.append(example)
 
-    print("✅ LLM quantized to 4-bit")
+    print("📊 Quantizing with calibration data...")
+    # Quantize the model
+    model.quantize(examples)
+
+    print("✅ LLM quantized to 8-bit")
     print()
 
     # Save quantized model
-    print(f"Saving quantized LLM to {LLM_AWQ_PATH}...")
-    model.save_quantized(LLM_AWQ_PATH, safetensors=True)
-    tokenizer.save_pretrained(LLM_AWQ_PATH)
+    print(f"Saving quantized LLM to {LLM_GPTQ_PATH}...")
+    os.makedirs(LLM_GPTQ_PATH, exist_ok=True)
+    model.save_quantized(LLM_GPTQ_PATH, use_safetensors=True)
+    tokenizer.save_pretrained(LLM_GPTQ_PATH)
 
     print("✅ Quantized LLM saved")
     print()
 
-    return LLM_AWQ_PATH
+    return LLM_GPTQ_PATH
 
 def verify_quantization():
     """Verify the quantized model."""
@@ -186,7 +205,7 @@ def verify_quantization():
                 original_size += os.path.getsize(os.path.join(root, f))
 
     quantized_size = 0
-    for root, dirs, files in os.walk(LLM_AWQ_PATH):
+    for root, dirs, files in os.walk(LLM_GPTQ_PATH):
         for f in files:
             quantized_size += os.path.getsize(os.path.join(root, f))
 
@@ -195,9 +214,9 @@ def verify_quantization():
     print(f"Compression ratio: {original_size / quantized_size:.2f}x")
     print()
 
-    if quantized_size > 10e9:
+    if quantized_size > 12e9:
         print("⚠️  WARNING: Quantized size larger than expected")
-        print("   Expected: ~4-5GB for 4-bit quantized LLM")
+        print("   Expected: ~8-10GB for 8-bit quantized LLM")
         print(f"   Got: {quantized_size / 1e9:.2f}GB")
     else:
         print("✅ Quantization successful!")
@@ -215,7 +234,7 @@ def cleanup_temp():
 def main():
     print()
     print("╔════════════════════════════════════════════════════════════════╗")
-    print("║   AWQ Quantization for OmniSpeech LLM (Persistent on Disk)    ║")
+    print("║   GPTQ Quantization for OmniSpeech LLM (Persistent 8-bit)    ║")
     print("╚════════════════════════════════════════════════════════════════╝")
     print()
 
@@ -223,8 +242,8 @@ def main():
         # Step 1: Extract LLM from unified checkpoint
         llm_checkpoint = extract_llm_checkpoint()
 
-        # Step 2: Quantize with AWQ
-        quantized_path = quantize_with_awq(llm_checkpoint)
+        # Step 2: Quantize with GPTQ
+        quantized_path = quantize_with_gptq(llm_checkpoint)
 
         # Step 3: Verify
         verify_quantization()
@@ -238,10 +257,9 @@ def main():
         print("=" * 70)
         print()
         print("Next steps:")
-        print("1. Quantized LLM saved to:", LLM_AWQ_PATH)
-        print("2. Update model_worker.py to load from quantized path")
-        print("3. Restart container to use quantized model")
-        print("4. Expected memory usage: ~10-12GB (vs 21GB original)")
+        print("1. Quantized LLM saved to:", LLM_GPTQ_PATH)
+        print("2. Restart container to use quantized model")
+        print("3. Expected memory usage: ~12-14GB (vs 21GB original)")
         print()
 
     except Exception as e:

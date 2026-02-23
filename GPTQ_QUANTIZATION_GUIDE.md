@@ -1,21 +1,22 @@
-# AWQ Persistent Quantization Guide
+# GPTQ Persistent Quantization Guide
 
 ## Overview
 
-This guide uses **AutoAWQ** for persistent on-disk quantization of the Qwen LLM component.
-Unlike BitsAndBytes (runtime-only), AWQ saves quantized weights to disk for faster loading.
+This guide uses **AutoGPTQ** for persistent on-disk quantization of the Qwen LLM component.
+Unlike BitsAndBytes (runtime-only), GPTQ saves quantized weights to disk for faster loading.
 
-## Why AWQ?
+## Why GPTQ?
 
-| Feature | BitsAndBytes | AWQ |
+| Feature | BitsAndBytes | GPTQ |
 |---------|-------------|-----|
 | **Quantization Type** | Runtime (every load) | Persistent (once) |
-| **Disk Size** | 21GB (full precision) | ~4-5GB (quantized LLM) |
+| **Disk Size** | 21GB (full precision) | ~8-10GB (quantized LLM) |
 | **Load Time** | 2-5 min (quantizes each time) | 30-60s (loads quantized) |
-| **Memory Usage** | ~14-21GB VRAM | ~8-10GB VRAM |
+| **Memory Usage** | ~14-21GB VRAM | ~12-14GB VRAM |
+| **Bit Width** | 4-bit or 8-bit | 8-bit (this guide) |
 | **Best For** | Quick experimentation | Production use |
 
-**For your use case (fast loading, persistent):** AWQ is the right choice ✅
+**For your use case (8-bit, persistent):** GPTQ is the right choice ✅
 
 ## Architecture
 
@@ -25,7 +26,7 @@ Unlike BitsAndBytes (runtime-only), AWQ saves quantized weights to disk for fast
 │   ├── model-*.safetensors  # Contains: encoder + LLM + TTS + adapters
 │   ├── audio/ (configs)
 │   └── tts/ (tokenizers)
-├── OpenS2S-llm-awq/         # Quantized LLM ONLY (~4-5GB) ← NEW
+├── OpenS2S-llm-gptq/        # Quantized LLM ONLY (~8-10GB) ← NEW
 ├── wavlm-base-plus/         # Cached WavLM (~400MB) ← Auto-cached
 └── glm-4-voice-decoder/     # Voice decoder
 ```
@@ -38,7 +39,7 @@ Unlike BitsAndBytes (runtime-only), AWQ saves quantized weights to disk for fast
 cd ~/OpenS2S
 git pull origin main
 
-# Rebuild container with AutoAWQ
+# Rebuild container with AutoGPTQ
 docker stop opens2s-server
 docker rm opens2s-server
 ./build_and_run.sh
@@ -48,37 +49,44 @@ docker logs -f opens2s-server
 # Wait for: "✅ All 2 models are ready!"
 ```
 
-### Step 2: Run AWQ Quantization (One-Time, ~10 minutes)
+### Step 2: Run GPTQ Quantization (One-Time, ~10 minutes)
+
+**IMPORTANT:** Stop the inference server first to free GPU memory:
+```bash
+# Stop the server to free GPU memory for quantization
+docker stop opens2s-server
+```
 
 ```bash
-# This extracts LLM from unified checkpoint and quantizes it
-docker exec -it opens2s-server python3 /app/quantize_llm_awq.py
+# Start container and run quantization immediately
+docker start opens2s-server
+docker exec -it opens2s-server python3 /app/quantize_llm_gptq.py
 ```
 
 **What happens:**
 1. Loads OmniSpeech (21GB unified checkpoint)
 2. Extracts LLM component (~15GB worth of weights)
-3. Quantizes LLM to 4-bit AWQ (~4-5GB)
-4. Saves to `/models/OpenS2S-llm-awq/`
+3. Quantizes LLM to 8-bit GPTQ (~8-10GB)
+4. Saves to `/models/OpenS2S-llm-gptq/`
 5. Deletes temp files
 
 **Expected output:**
 ```
 ╔════════════════════════════════════════════════════════════════╗
-║   AWQ Quantization for OmniSpeech LLM (Persistent on Disk)    ║
+║   GPTQ Quantization for OmniSpeech LLM (Persistent 8-bit)    ║
 ╚════════════════════════════════════════════════════════════════╝
 
 📦 Step 1/3: Extracting LLM from OmniSpeech Checkpoint
 ✅ Standalone LLM checkpoint saved
 
-🔧 Step 2/3: Quantizing LLM with AutoAWQ
-✅ LLM quantized to 4-bit
+🔧 Step 2/3: Quantizing LLM with AutoGPTQ (8-bit)
+✅ LLM quantized to 8-bit
 ✅ Quantized LLM saved
 
 📊 Step 3/3: Verifying Quantization
 Original checkpoint (full): 21.00 GB
-Quantized LLM only: 4.50 GB
-Compression ratio: 4.67x
+Quantized LLM only: 9.00 GB
+Compression ratio: 2.33x
 ✅ Quantization successful!
 
 🎉 SUCCESS! LLM Quantization Complete
@@ -89,15 +97,15 @@ Compression ratio: 4.67x
 ```bash
 docker restart opens2s-server
 
-# Verify it's using AWQ
-docker logs opens2s-server | grep -A 5 "AWQ"
+# Verify it's using GPTQ
+docker logs opens2s-server | grep -A 5 "GPTQ"
 ```
 
 **Expected logs:**
 ```
-🔄 Loading AWQ-quantized LLM from /models/OpenS2S-llm-awq...
-✅ AWQ-quantized LLM loaded (4-bit, ~4-5GB)
-   Expected total VRAM: ~8-10GB
+🔄 Loading GPTQ-quantized LLM from /models/OpenS2S-llm-gptq...
+✅ GPTQ-quantized LLM loaded (8-bit, ~8-10GB)
+   Expected total VRAM: ~12-14GB
 ```
 
 ### Step 4: Verify Memory Usage
@@ -108,13 +116,13 @@ docker exec opens2s-server nvidia-smi
 
 **Expected:**
 - Before: ~14-21GB VRAM
-- After: **~8-10GB VRAM** ✅
+- After: **~12-14GB VRAM** ✅
 
 ### Step 5: Save VM Snapshot
 
 **Critical:** Save a VM snapshot now to preserve:
 - ✅ `/models/OpenS2S/` (original, 21GB)
-- ✅ `/models/OpenS2S-llm-awq/` (quantized LLM, 4-5GB)
+- ✅ `/models/OpenS2S-llm-gptq/` (quantized LLM, 8-10GB)
 - ✅ `/models/wavlm-base-plus/` (cached WavLM, 400MB)
 - ✅ `/models/glm-4-voice-decoder/` (decoder)
 
@@ -125,8 +133,8 @@ Future VMs from this snapshot will have **instant startup** with quantized model
 ### Loading Flow:
 
 ```
-1. Check: Does /models/OpenS2S-llm-awq exist?
-   ├─ YES: Load OmniSpeech base + quantized LLM (8-10GB) ✨
+1. Check: Does /models/OpenS2S-llm-gptq exist?
+   ├─ YES: Load OmniSpeech base + quantized LLM (12-14GB) ✨
    └─ NO:  Load full OmniSpeech (14-21GB) + show tip
 
 2. Check: Does /models/wavlm-base-plus exist?
@@ -135,10 +143,10 @@ Future VMs from this snapshot will have **instant startup** with quantized model
 
 3. Assemble complete model:
    - Audio Encoder: WavLM (bf16, ~1GB)
-   - LLM: AWQ-quantized (4-bit, ~4-5GB) ← KEY SAVINGS
+   - LLM: GPTQ-quantized (8-bit, ~8-10GB) ← KEY SAVINGS
    - TTS: Qwen (bf16, ~2-3GB)
    - Adapters: (bf16, ~1GB)
-   = Total: ~8-10GB
+   = Total: ~12-14GB
 ```
 
 ## Troubleshooting
@@ -147,23 +155,23 @@ Future VMs from this snapshot will have **instant startup** with quantized model
 
 **Check logs:**
 ```bash
-docker logs opens2s-server | grep -i "awq\|quantized"
+docker logs opens2s-server | grep -i "gptq\|quantized"
 ```
 
 If you see:
 ```
-💡 No AWQ-quantized LLM found
+💡 No GPTQ-quantized LLM found
 ```
 
-AWQ quantization didn't complete. Re-run Step 2.
+GPTQ quantization didn't complete. Re-run Step 2.
 
-### Q: AutoAWQ import error?
+### Q: AutoGPTQ import error?
 
-**Error:** `ImportError: No module named 'awq'`
+**Error:** `ImportError: No module named 'auto_gptq'`
 
 **Solution:**
 ```bash
-# Rebuild container (AutoAWQ should be in Dockerfile)
+# Rebuild container (AutoGPTQ should be in Dockerfile)
 docker stop opens2s-server
 docker rm opens2s-server
 ./build_and_run.sh
@@ -171,7 +179,7 @@ docker rm opens2s-server
 
 ### Q: Quantization takes too long (>15 min)?
 
-AWQ quantization can be slow without calibration data. Current implementation uses simple quantization.
+GPTQ quantization can take time depending on calibration data.
 This is expected for first-time setup. Future loads will be fast!
 
 ### Q: Can I delete the original checkpoint after quantization?
@@ -189,20 +197,21 @@ Only the LLM is in the separate quantized checkpoint.
 |--------|--------|-------|-------------|
 | First load | 2-5 min | 10 min (one-time) | One-time cost |
 | Subsequent loads | 2-5 min | **30-60s** | **4-5x faster** ✅ |
-| GPU Memory | 14-21GB | **8-10GB** | **40-50% less** ✅ |
-| Disk Space | 21GB | 25GB | +4GB (worth it!) |
+| GPU Memory | 14-21GB | **12-14GB** | **20-30% less** ✅ |
+| Disk Space | 21GB | 29-31GB | +8-10GB (worth it!) |
 | Container rebuild | Re-download (slow) | Instant (cached) | **10x faster** ✅ |
 
 ## Files Changed
 
-- `quantize_llm_awq.py` - New: AWQ quantization script
-- `model_worker.py` - Updated: Loads AWQ-quantized LLM if available
-- `Dockerfile` - Updated: Installs AutoAWQ
+- `quantize_llm_gptq.py` - New: GPTQ quantization script (8-bit)
+- `model_worker.py` - Updated: Loads GPTQ-quantized LLM if available
+- `Dockerfile` - Updated: Installs AutoGPTQ
 - `build_and_run.sh` - Already updated: Mounts `/models` from host
 
 ## Notes
 
-- AWQ quantization is **persistent** (saves to disk)
+- GPTQ quantization is **persistent** (saves to disk)
+- 8-bit quantization provides good quality with ~50% size reduction
 - Quantized model works across container rebuilds
 - WavLM is automatically cached after first download
 - VM snapshots capture all cached/quantized models
