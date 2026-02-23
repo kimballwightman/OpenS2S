@@ -7,9 +7,16 @@ echo "GPU VM: g2-standard-4 with NVIDIA L4, CUDA 12.2"
 echo ""
 
 # Check if we're in the right directory
-if [ ! -f "inference_server.py" ]; then
-    echo "❌ Error: Must run from OpenS2S directory containing inference_server.py"
+if [ ! -f "model_worker.py" ]; then
+    echo "❌ Error: Must run from OpenS2S directory containing model_worker.py"
     exit 1
+fi
+
+# Create host models directory if it doesn't exist
+HOST_MODELS_DIR="$HOME/models"
+if [ ! -d "$HOST_MODELS_DIR" ]; then
+    echo "📁 Creating host models directory: $HOST_MODELS_DIR"
+    mkdir -p "$HOST_MODELS_DIR"
 fi
 
 # Check if Docker is available
@@ -42,8 +49,9 @@ echo "🛑 Stopping any existing containers..."
 docker stop opens2s-server 2>/dev/null || true
 docker rm opens2s-server 2>/dev/null || true
 
-# Run the container
+# Run the container with host volume mount for models
 echo "🎯 Starting OpenS2S inference server..."
+echo "   Models directory: $HOST_MODELS_DIR (mounted to /models in container)"
 docker run -d \
     --name opens2s-server \
     --gpus all \
@@ -51,6 +59,7 @@ docker run -d \
     -p 8000:8000 \
     -p 21001:21001 \
     -v /tmp:/tmp \
+    -v "$HOST_MODELS_DIR:/models" \
     --shm-size=2g \
     opens2s-inference:latest
 

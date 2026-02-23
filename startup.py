@@ -106,7 +106,18 @@ def start_model_worker():
     print("🎯 Starting OpenS2S model worker...")
 
     # Model paths for runtime
-    opens2s_model_path = f"{MODELS_DIR}/OpenS2S"
+    # Use pre-quantized model if it exists, otherwise fall back to original
+    quantized_model_path = f"{MODELS_DIR}/OpenS2S-8bit"
+    original_model_path = f"{MODELS_DIR}/OpenS2S"
+
+    if os.path.exists(quantized_model_path) and os.listdir(quantized_model_path):
+        opens2s_model_path = quantized_model_path
+        print(f"   Using pre-quantized model: {opens2s_model_path}")
+    else:
+        opens2s_model_path = original_model_path
+        print(f"   Using original model: {opens2s_model_path}")
+        print(f"   💡 Tip: Run quantize_model_once.py to create faster-loading quantized model")
+
     decoder_model_path = f"{MODELS_DIR}/glm-4-voice-decoder"
 
     # Build command arguments - REMOVED --no-register so worker connects to controller

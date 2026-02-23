@@ -25,7 +25,7 @@ import uvicorn
 import numpy as np
 from functools import partial
 
-from transformers import AutoTokenizer, AutoConfig, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoConfig
 from transformers import TextIteratorStreamer
 from transformers import GenerationConfig
 from transformers.generation.streamers import BaseStreamer
@@ -116,81 +116,43 @@ def pretty_print_semaphore(semaphore):
 
 def load_pretrained_model(model_path, audio_processor_type="whisper"):
     """
-    Load OmniSpeech model with 8-bit quantized LLM (selective quantization).
-    Audio encoder and TTS remain in bf16 for quality preservation.
+    Load pre-quantized OmniSpeech model from disk.
+
+    Note: Model should be pre-quantized using quantize_model_once.py script.
+    This function simply loads the model without runtime quantization.
 
     Args:
-        model_path: Path to pretrained model
+        model_path: Path to pretrained model (should point to quantized version)
         audio_processor_type: "whisper" (default) or "wavlm"
 
-    Memory Profile:
-        - bf16 (baseline): ~20GB
-        - 8-bit LLM only: ~10-12GB (target)
-        - With WavLM: ~8-10GB (removes Whisper 3-5GB)
+    Memory Profile (with pre-quantized model):
+        - Pre-quantized model: ~10-12GB
+        - With WavLM: ~8-10GB
     """
     tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
     tts_tokenizer = AutoTokenizer.from_pretrained(os.path.join(model_path, "tts"), local_files_only=True)
     generation_config = GenerationConfig.from_pretrained(model_path, local_files_only=True)
     tts_generation_config = GenerationConfig.from_pretrained(os.path.join(model_path, "tts"), local_files_only=True)
 
-    # 8-bit quantization config (better quality than 4-bit)
-    quantization_config = BitsAndBytesConfig(
-        load_in_8bit=True,
-        llm_int8_threshold=6.0,
-        llm_int8_has_fp16_weight=False
-    )
+    logger.info("📦 Loading pre-quantized OmniSpeech model...")
+    logger.info("   (Model was quantized using quantize_model_once.py)")
 
-    logger.info("📦 Loading OmniSpeech with selective 8-bit quantization...")
-    logger.info("   Strategy: Quantize LLM only, keep audio/TTS at bf16")
-
-    # Step 1: Load base model to CPU without moving to GPU yet
+    # Load model directly - it's already quantized on disk
     model = OmniSpeechModel.from_pretrained(
         model_path,
+        device_map="auto",
         torch_dtype=torch.bfloat16,
-        low_cpu_mem_usage=True,
-        device_map={"": "cpu"},  # Keep on CPU for now
-        local_files_only=True
+        local_files_only=True,
+        low_cpu_mem_usage=True
     )
 
-    # Step 2: Replace LLM with 8-bit quantized version
-    logger.info("🔄 Replacing LLM with 8-bit quantized version...")
+    logger.info("✅ Model loaded from disk")
 
-    # Get LLM weights from loaded model
-    llm_state_dict = model.llm_model.state_dict()
-
-    # Create temporary directory for LLM checkpoint
-    import tempfile
-    import shutil
-    temp_dir = tempfile.mkdtemp(prefix="omnispeech_llm_")
-
-    try:
-        # Save LLM config and weights to temp location
-        model.llm_config.save_pretrained(temp_dir)
-        torch.save(llm_state_dict, os.path.join(temp_dir, "pytorch_model.bin"))
-
-        # Load LLM with 8-bit quantization from temp checkpoint
-        quantized_llm = AutoModelForCausalLM.from_pretrained(
-            temp_dir,
-            quantization_config=quantization_config,
-            device_map="auto",
-            torch_dtype=torch.bfloat16,
-            local_files_only=True
-        )
-
-        # Replace LLM in model
-        model.llm_model = quantized_llm
-
-        logger.info("✅ LLM quantized to 8-bit - VRAM saved: ~8-10GB")
-
-    finally:
-        # Cleanup temp directory
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-    # Step 3: Replace audio encoder with WavLM if requested
+    # Replace audio encoder with WavLM if requested
     if audio_processor_type == "wavlm":
         from src.modeling_audio_encoder import WavLMEncoder
 
-        logger.info("🔄 Replacing Whisper encoder with WavLM...")
+        logger.info("🔄 Replacing audio encoder with WavLM...")
 
         # Load WavLM encoder
         wavlm_encoder = WavLMEncoder.from_pretrained("microsoft/wavlm-base-plus")
@@ -198,22 +160,12 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
         # Replace Whisper encoder in model
         model.audio_encoder_model = wavlm_encoder.to("cuda")
 
-        logger.info("✅ WavLM encoder loaded - VRAM saved: ~3-5GB")
+        logger.info("✅ WavLM encoder loaded")
         logger.info(f"   Audio encoder type: {type(model.audio_encoder_model).__name__}")
 
-    # Step 4: Move non-quantized components to GPU
-    # (LLM already on GPU from device_map="auto")
-    if audio_processor_type != "wavlm":  # WavLM already moved above
-        model.audio_encoder_model.to("cuda")
-    model.tts_lm_model.to("cuda")
-    model.audio_adapter.to("cuda")
-    model.llm2tts.to("cuda")
-    model.llm_ln.to("cuda")
-
     logger.info("✅ Model loading complete")
-    logger.info(f"   LLM: 8-bit quantized (on GPU)")
-    logger.info(f"   Audio Encoder: {audio_processor_type} (bf16, on GPU)")
-    logger.info(f"   TTS: bf16 (on GPU)")
+    logger.info(f"   Audio Encoder: {audio_processor_type}")
+    logger.info(f"   Ready for inference")
 
     return tokenizer, tts_tokenizer, model, generation_config, tts_generation_config
 
