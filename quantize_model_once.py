@@ -22,7 +22,6 @@ Expected space: ~10GB for quantized model (vs 21GB original)
 import os
 import sys
 import torch
-from transformers import AutoModelForCausalLM, BitsAndBytesConfig
 
 # Add src to path
 sys.path.insert(0, '/app')
@@ -71,35 +70,62 @@ def main():
     print()
     print("🔄 Step 2/4: Quantizing LLM component to 8-bit...")
     print("   This may take 2-3 minutes...")
+    print("   Note: Using manual layer replacement for quantization")
 
     try:
-        quantization_config = BitsAndBytesConfig(
-            load_in_8bit=True,
-            llm_int8_threshold=6.0,
-            llm_int8_has_fp16_weight=False
-        )
+        import bitsandbytes as bnb
+        from bitsandbytes.nn import Linear8bitLt, Int8Params
 
-        # Replace LLM with quantized version
-        # Note: We load from the original checkpoint which has proper structure
-        # This should trigger bitsandbytes quantization
-        quantized_llm = AutoModelForCausalLM.from_pretrained(
-            SOURCE_PATH,
-            quantization_config=quantization_config,
-            device_map="cpu",
-            torch_dtype=torch.bfloat16,
-            local_files_only=True
-        )
+        # Manual quantization: Replace all Linear layers in LLM with 8-bit versions
+        def quantize_linear_layers(module, parent_name=""):
+            """Recursively replace Linear layers with 8-bit quantized versions."""
+            replaced_count = 0
 
-        # Replace in model
-        del model.llm_model
-        model.llm_model = quantized_llm
+            for name, child in list(module.named_children()):
+                full_name = f"{parent_name}.{name}" if parent_name else name
 
-        print("   ✅ LLM quantized to 8-bit")
+                if isinstance(child, torch.nn.Linear):
+                    # Create 8-bit linear layer
+                    new_layer = Linear8bitLt(
+                        child.in_features,
+                        child.out_features,
+                        bias=child.bias is not None,
+                        has_fp16_weights=False,
+                        threshold=6.0
+                    )
+
+                    # Quantize and copy weights
+                    new_layer.weight = Int8Params(
+                        child.weight.data.to(torch.float16),  # Convert to fp16 first
+                        requires_grad=False,
+                        has_fp16_weights=False
+                    )
+
+                    if child.bias is not None:
+                        new_layer.bias = torch.nn.Parameter(child.bias.data)
+
+                    # Replace the layer
+                    setattr(module, name, new_layer)
+                    replaced_count += 1
+                else:
+                    # Recursively process child modules
+                    replaced_count += quantize_linear_layers(child, full_name)
+
+            return replaced_count
+
+        # Apply quantization to LLM
+        print("   Replacing Linear layers with 8-bit quantized versions...")
+        layers_replaced = quantize_linear_layers(model.llm_model)
+        print(f"   ✅ Quantized {layers_replaced} Linear layers in LLM")
+
+    except ImportError:
+        print("   ❌ bitsandbytes not installed - quantization skipped")
+        print("   Model will be saved without quantization")
     except Exception as e:
-        print(f"   ❌ Failed to quantize: {e}")
-        print("   Note: Quantization may not work with current approach.")
-        print("   The model will be saved but may not be truly quantized.")
-        # Continue anyway to save the model
+        print(f"   ❌ Quantization failed: {e}")
+        print("   Model will be saved without quantization")
+        import traceback
+        traceback.print_exc()
 
     print()
     print(f"💾 Step 3/4: Saving quantized model to {QUANTIZED_PATH}...")
@@ -151,7 +177,23 @@ def main():
         for f in files:
             total_size += os.path.getsize(os.path.join(root, f))
 
-    print(f"   Total size: {total_size / 1e9:.2f} GB")
+    size_gb = total_size / 1e9
+    print(f"   Total size: {size_gb:.2f} GB")
+
+    # Verify quantization worked by checking size
+    if size_gb > 15:
+        print()
+        print("   ⚠️  WARNING: Model size suggests quantization may have failed")
+        print(f"   Expected: ~10-12GB for quantized model")
+        print(f"   Got: {size_gb:.2f}GB (similar to original 21GB)")
+        print()
+        print("   Possible causes:")
+        print("   - bitsandbytes quantization didn't apply")
+        print("   - Model saved in full precision")
+        print()
+        print("   You can still use this model, but it won't have memory savings.")
+    else:
+        print(f"   ✅ Size looks good for quantized model (~{size_gb:.1f}GB vs 21GB original)")
 
     print()
     print("=" * 70)

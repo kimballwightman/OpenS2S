@@ -116,28 +116,31 @@ def pretty_print_semaphore(semaphore):
 
 def load_pretrained_model(model_path, audio_processor_type="whisper"):
     """
-    Load pre-quantized OmniSpeech model from disk.
+    Load OmniSpeech model with optional AWQ-quantized LLM.
 
-    Note: Model should be pre-quantized using quantize_model_once.py script.
-    This function simply loads the model without runtime quantization.
+    If AWQ-quantized LLM exists at /models/OpenS2S-llm-awq/, it will be used.
+    Otherwise, loads the full precision model from model_path.
 
     Args:
-        model_path: Path to pretrained model (should point to quantized version)
+        model_path: Path to pretrained model
         audio_processor_type: "whisper" (default) or "wavlm"
 
-    Memory Profile (with pre-quantized model):
-        - Pre-quantized model: ~10-12GB
-        - With WavLM: ~8-10GB
+    Memory Profile:
+        - With AWQ-quantized LLM: ~8-10GB
+        - Original (bf16): ~14-21GB
     """
+    # Check for AWQ-quantized LLM
+    awq_llm_path = "/models/OpenS2S-llm-awq"
+    use_awq_llm = os.path.exists(awq_llm_path) and os.listdir(awq_llm_path)
+
     tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
     tts_tokenizer = AutoTokenizer.from_pretrained(os.path.join(model_path, "tts"), local_files_only=True)
     generation_config = GenerationConfig.from_pretrained(model_path, local_files_only=True)
     tts_generation_config = GenerationConfig.from_pretrained(os.path.join(model_path, "tts"), local_files_only=True)
 
-    logger.info("📦 Loading pre-quantized OmniSpeech model...")
-    logger.info("   (Model was quantized using quantize_model_once.py)")
+    logger.info(f"📦 Loading OmniSpeech model from {model_path}...")
 
-    # Load model directly - it's already quantized on disk
+    # Load base model
     model = OmniSpeechModel.from_pretrained(
         model_path,
         device_map="auto",
@@ -146,7 +149,39 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
         low_cpu_mem_usage=True
     )
 
-    logger.info("✅ Model loaded from disk")
+    logger.info("✅ Base model loaded from disk")
+
+    # Replace LLM with AWQ-quantized version if available
+    if use_awq_llm:
+        logger.info(f"🔄 Loading AWQ-quantized LLM from {awq_llm_path}...")
+
+        try:
+            from awq import AutoAWQForCausalLM
+
+            # Load quantized LLM
+            quantized_llm = AutoAWQForCausalLM.from_quantized(
+                awq_llm_path,
+                fuse_layers=True,
+                safetensors=True
+            )
+
+            # Replace LLM in model
+            del model.llm_model
+            model.llm_model = quantized_llm.model  # Extract the actual model from AWQ wrapper
+
+            logger.info("✅ AWQ-quantized LLM loaded (4-bit, ~4-5GB)")
+            logger.info("   Expected total VRAM: ~8-10GB")
+
+        except ImportError:
+            logger.warning("⚠️  AutoAWQ not installed, using full precision LLM")
+            logger.info("   Install with: pip install autoawq")
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to load AWQ LLM: {e}")
+            logger.info("   Using full precision LLM")
+    else:
+        logger.info("💡 No AWQ-quantized LLM found")
+        logger.info("   Using full precision LLM (~14-21GB total VRAM)")
+        logger.info("   Run quantize_llm_awq.py to create quantized version")
 
     # Replace audio encoder with WavLM if requested
     if audio_processor_type == "wavlm":
@@ -154,8 +189,18 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
 
         logger.info("🔄 Replacing audio encoder with WavLM...")
 
-        # Load WavLM encoder
-        wavlm_encoder = WavLMEncoder.from_pretrained("microsoft/wavlm-base-plus")
+        # Check for cached WavLM
+        wavlm_cache_path = "/models/wavlm-base-plus"
+        if os.path.exists(wavlm_cache_path):
+            logger.info(f"   Loading WavLM from cache: {wavlm_cache_path}")
+            wavlm_encoder = WavLMEncoder.from_pretrained(wavlm_cache_path)
+        else:
+            logger.info("   Downloading WavLM from HuggingFace...")
+            wavlm_encoder = WavLMEncoder.from_pretrained("microsoft/wavlm-base-plus")
+
+            # Cache for future use
+            logger.info(f"   Caching WavLM to {wavlm_cache_path}...")
+            wavlm_encoder.wavlm.save_pretrained(wavlm_cache_path)
 
         # Replace Whisper encoder in model
         model.audio_encoder_model = wavlm_encoder.to("cuda")
@@ -165,6 +210,7 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
 
     logger.info("✅ Model loading complete")
     logger.info(f"   Audio Encoder: {audio_processor_type}")
+    logger.info(f"   LLM: {'AWQ-quantized (4-bit)' if use_awq_llm else 'Full precision (bf16)'}")
     logger.info(f"   Ready for inference")
 
     return tokenizer, tts_tokenizer, model, generation_config, tts_generation_config
