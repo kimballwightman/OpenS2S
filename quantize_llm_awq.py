@@ -21,6 +21,7 @@ Expected output:
 import os
 import sys
 import torch
+import shutil
 
 # Add src to path
 sys.path.insert(0, '/app')
@@ -78,7 +79,27 @@ def extract_llm_checkpoint():
         max_shard_size="5GB"
     )
 
-    print("✅ Standalone LLM checkpoint saved")
+    # Copy tokenizer files from source to temp directory
+    print()
+    print(f"Copying tokenizer files from {SOURCE_PATH} to {LLM_TEMP_PATH}...")
+    tokenizer_files = [
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "generation_config.json",
+        "added_tokens.json"
+    ]
+
+    for file in tokenizer_files:
+        src = os.path.join(SOURCE_PATH, file)
+        dst = os.path.join(LLM_TEMP_PATH, file)
+        if os.path.exists(src):
+            shutil.copy2(src, dst)
+            print(f"   Copied {file}")
+
+    print("✅ Standalone LLM checkpoint saved with tokenizer")
     print()
 
     return LLM_TEMP_PATH
@@ -186,7 +207,6 @@ def verify_quantization():
 
 def cleanup_temp():
     """Cleanup temporary files."""
-    import shutil
     if os.path.exists(LLM_TEMP_PATH):
         print(f"Cleaning up temporary files at {LLM_TEMP_PATH}...")
         shutil.rmtree(LLM_TEMP_PATH)
