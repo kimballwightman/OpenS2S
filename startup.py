@@ -3,6 +3,11 @@
 OpenS2S Startup Script
 Downloads required HuggingFace models at runtime if they don't exist.
 Models are stored in persistent /models directory (mounted volume).
+
+HuggingFace Authentication:
+- Checks for HF_ACCESS_TOKEN environment variable
+- If not found, attempts to fetch from GCP Secret Manager
+- Token required for private repository access
 """
 
 import os
@@ -14,13 +19,13 @@ from pathlib import Path
 MODELS_DIR = "/models"
 MODELS_CONFIG = [
     {
-        "repo_id": "CASIA-LM/OpenS2S",
-        "local_path": f"{MODELS_DIR}/OpenS2S",
+        "repo_id": "kimballwightman/SalesS2S",
+        "local_path": f"{MODELS_DIR}/SalesS2S",
         "description": "OpenS2S main model"
     },
     {
-        "repo_id": "THUDM/glm-4-voice-decoder",
-        "local_path": f"{MODELS_DIR}/glm-4-voice-decoder",
+        "repo_id": "kimballwightman/SalesS2S-Voice-Decoder",
+        "local_path": f"{MODELS_DIR}/SalesS2S-Voice-Decoder",
         "description": "GLM-4 Voice Decoder"
     }
 ]
@@ -105,22 +110,15 @@ def start_model_worker():
 
     print("🎯 Starting OpenS2S model worker...")
 
-    # Model paths for runtime
-    # Use pre-quantized model if it exists, otherwise fall back to original
-    quantized_model_path = f"{MODELS_DIR}/OpenS2S-8bit"
-    original_model_path = f"{MODELS_DIR}/OpenS2S"
+    # Model paths for runtime - using private repos
+    opens2s_model_path = f"{MODELS_DIR}/SalesS2S"
+    decoder_model_path = f"{MODELS_DIR}/SalesS2S-Voice-Decoder"
 
-    if os.path.exists(quantized_model_path) and os.listdir(quantized_model_path):
-        opens2s_model_path = quantized_model_path
-        print(f"   Using pre-quantized model: {opens2s_model_path}")
-    else:
-        opens2s_model_path = original_model_path
-        print(f"   Using original model: {opens2s_model_path}")
-        print(f"   💡 Tip: Run quantize_model_once.py to create faster-loading quantized model")
-
-    decoder_model_path = f"{MODELS_DIR}/glm-4-voice-decoder"
+    print(f"   Using OpenS2S model: {opens2s_model_path}")
+    print(f"   Using Voice Decoder: {decoder_model_path}")
 
     # Build command arguments - REMOVED --no-register so worker connects to controller
+    # Note: WavLM is now hardcoded in model config, no need for --audio-processor flag
     cmd = [
         "python3", "model_worker.py",
         "--host", "0.0.0.0",
@@ -128,8 +126,7 @@ def start_model_worker():
         "--model-path", opens2s_model_path,
         "--flow-path", decoder_model_path,
         "--controller-address", "http://localhost:21001",
-        "--worker-address", "http://localhost:8000",
-        "--audio-processor", "wavlm"  # Use WavLM encoder (saves 3-5GB VRAM vs Whisper)
+        "--worker-address", "http://localhost:8000"
     ]
 
     print(f"🔧 Command: {' '.join(cmd)}")

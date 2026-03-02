@@ -20,35 +20,44 @@ class OmniSpeechConfig(PretrainedConfig):
         interleave_strategy="1:2",
         **kwargs
     ):
+        # Force WavLM as the only audio encoder (no fallbacks)
         if isinstance(audio_encoder_config, dict):
-            if "model_type" in audio_encoder_config:
-                # Set defaults for WavLM if specified
-                if audio_encoder_config["model_type"] == "wavlm":
-                    audio_encoder_config.setdefault("hidden_size", 768)  # WavLM internal dimension
-                    audio_encoder_config.setdefault("d_model", 1280)  # Output dimension after projection (matches Whisper)
-                    audio_encoder_config.setdefault("num_hidden_layers", 12)
-                    audio_encoder_config.setdefault("max_source_positions", 1500)
-                    audio_encoder_config.setdefault("num_attention_heads", 12)
-                    audio_encoder_config.setdefault("intermediate_size", 3072)
-            else:
-                logger.info("audio encoder config is None. Initializing with qwen2_audio_encoder")
-                audio_encoder_config["model_type"] = "qwen2_audio_encoder"
+            # Ensure model_type is wavlm
+            if "model_type" not in audio_encoder_config or audio_encoder_config["model_type"] != "wavlm":
+                logger.warning(f"Audio encoder model_type was '{audio_encoder_config.get('model_type', 'None')}', forcing to 'wavlm'")
+                audio_encoder_config["model_type"] = "wavlm"
+
+            # Set WavLM defaults
+            audio_encoder_config.setdefault("hidden_size", 768)  # WavLM internal dimension
+            audio_encoder_config.setdefault("d_model", 1280)  # Output dimension after projection
+            audio_encoder_config.setdefault("num_hidden_layers", 12)
+            audio_encoder_config.setdefault("max_source_positions", 1500)
+            audio_encoder_config.setdefault("num_attention_heads", 12)
+            audio_encoder_config.setdefault("intermediate_size", 3072)
+            audio_encoder_config.setdefault("activation_function", "gelu")
+            audio_encoder_config.setdefault("dropout", 0.1)
+            audio_encoder_config.setdefault("attention_dropout", 0.1)
+
         elif audio_encoder_config is None:
-            logger.info("audio encoder config is None. Initializing with qwen2_audio_encoder")
+            logger.info("audio encoder config is None. Initializing with wavlm (hardcoded)")
             audio_encoder_config = {
-                "model_type": "qwen2_audio_encoder",
+                "model_type": "wavlm",
+                "hidden_size": 768,
                 "d_model": 1280,
-                "encoder_attention_heads": 20,
-                "encoder_ffn_dim": 5120,
-                "encoder_layerdrop": 0.0,
-                "encoder_layers": 32,
-                "num_mel_bins": 128,
+                "num_hidden_layers": 12,
                 "max_source_positions": 1500,
-                "scale_embedding": False,
+                "num_attention_heads": 12,
+                "intermediate_size": 3072,
                 "activation_function": "gelu",
+                "dropout": 0.1,
+                "attention_dropout": 0.1,
+                "activation_dropout": 0.0,
+                "layerdrop": 0.0,
+                "init_std": 0.02,
+                "scale_embedding": False
             }
         else:
-            raise NotImplementedError
+            raise NotImplementedError("audio_encoder_config must be dict or None")
 
 
         if isinstance(llm_config, dict):

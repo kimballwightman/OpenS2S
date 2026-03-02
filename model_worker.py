@@ -38,7 +38,7 @@ from src.constants import DEFAULT_AUDIO_START_TOKEN, DEFAULT_AUDIO_END_TOKEN, DE
 from src.constants import DEFAULT_AUDIO_TOKEN, AUDIO_TOKEN_INDEX
 from src.modeling_omnispeech import OmniSpeechModel
 from src.utils import get_waveform
-from src.feature_extraction_audio import WhisperFeatureExtractor
+# Note: WhisperFeatureExtractor removed - WavLM processes raw audio directly
 
 sys.path.append("cosyvoice")
 sys.path.append("third_party/Matcha-TTS")
@@ -114,23 +114,24 @@ def pretty_print_semaphore(semaphore):
         return "None"
     return f"Semaphore(value={semaphore._value}, locked={semaphore.locked()})"
 
-def load_pretrained_model(model_path, audio_processor_type="whisper"):
+def load_pretrained_model(model_path):
     """
     Load OmniSpeech model with optional GPTQ-quantized LLM.
 
-    If GPTQ-quantized LLM exists at /models/OpenS2S-llm-gptq/, it will be used.
+    If GPTQ-quantized LLM exists at /models/SalesS2S-llm-gptq/, it will be used.
     Otherwise, loads the full precision model from model_path.
 
     Args:
-        model_path: Path to pretrained model
-        audio_processor_type: "whisper" (default) or "wavlm"
+        model_path: Path to pretrained model (should have wavlm config in config.json)
 
     Memory Profile:
         - With GPTQ-quantized LLM (8-bit): ~12-14GB
-        - Original (bf16): ~14-21GB
+        - Original (bf16): ~20-24GB
+
+    Note: WavLM audio encoder is now hardcoded in model config (no runtime override).
     """
     # Check for GPTQ-quantized LLM
-    gptq_llm_path = "/models/OpenS2S-llm-gptq"
+    gptq_llm_path = "/models/SalesS2S-llm-gptq"
     use_gptq_llm = os.path.exists(gptq_llm_path) and os.listdir(gptq_llm_path)
 
     tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
@@ -180,36 +181,12 @@ def load_pretrained_model(model_path, audio_processor_type="whisper"):
             logger.info("   Using full precision LLM")
     else:
         logger.info("💡 No GPTQ-quantized LLM found")
-        logger.info("   Using full precision LLM (~14-21GB total VRAM)")
+        logger.info("   Using full precision LLM (~20-24GB total VRAM)")
         logger.info("   Run quantize_llm_gptq.py to create quantized version")
 
-    # Replace audio encoder with WavLM if requested
-    if audio_processor_type == "wavlm":
-        from src.modeling_audio_encoder import WavLMEncoder
-
-        logger.info("🔄 Replacing audio encoder with WavLM...")
-
-        # Check for cached WavLM
-        wavlm_cache_path = "/models/wavlm-base-plus"
-        if os.path.exists(wavlm_cache_path):
-            logger.info(f"   Loading WavLM from cache: {wavlm_cache_path}")
-            wavlm_encoder = WavLMEncoder.from_pretrained(wavlm_cache_path)
-        else:
-            logger.info("   Downloading WavLM from HuggingFace...")
-            wavlm_encoder = WavLMEncoder.from_pretrained("microsoft/wavlm-base-plus")
-
-            # Cache for future use
-            logger.info(f"   Caching WavLM to {wavlm_cache_path}...")
-            wavlm_encoder.wavlm.save_pretrained(wavlm_cache_path)
-
-        # Replace Whisper encoder in model
-        model.audio_encoder_model = wavlm_encoder.to("cuda")
-
-        logger.info("✅ WavLM encoder loaded")
-        logger.info(f"   Audio encoder type: {type(model.audio_encoder_model).__name__}")
-
+    # Verify WavLM encoder is loaded (should be from config)
     logger.info("✅ Model loading complete")
-    logger.info(f"   Audio Encoder: {audio_processor_type}")
+    logger.info(f"   Audio Encoder: {type(model.audio_encoder_model).__name__}")
     logger.info(f"   LLM: {'GPTQ-quantized (8-bit)' if use_gptq_llm else 'Full precision (bf16)'}")
     logger.info(f"   Ready for inference")
 
@@ -226,19 +203,19 @@ def load_flow_model(flow_path):
 class ModelWorker:
     def __init__(self, controller_addr, worker_addr,
                  worker_id, no_register, model_path,
-                 flow_path, model_name, audio_processor="whisper"):
+                 flow_path, model_name):
         self.controller_addr = controller_addr
         self.worker_addr = worker_addr
         self.worker_id = worker_id
         self.model_name = model_name
-        self.audio_processor_type = audio_processor
+        self.audio_processor_type = "wavlm"  # Hardcoded - WavLM is the only encoder now
 
-        # Load main models (with optional WavLM encoder replacement)
+        # Load main models (WavLM encoder from config)
         self.tokenizer, self.tts_tokenizer, self.model, self.generation_config,\
-            self.tts_generation_config = load_pretrained_model(model_path, audio_processor)
+            self.tts_generation_config = load_pretrained_model(model_path)
 
-        # Initialize audio processors based on configuration
-        self._init_audio_processors(model_path, audio_processor)
+        # Initialize audio processors (WavLM only)
+        self._init_audio_processors(model_path)
 
         self.audio_decoder = load_flow_model(flow_path)
         self.system_prompt = "You are a helpful assistant."
@@ -250,50 +227,23 @@ class ModelWorker:
                 target=heart_beat_worker, args=(self,), daemon=True)
             self.heart_beat_thread.start()
 
-    def _init_audio_processors(self, model_path, audio_processor):
-        """Initialize audio processors based on configuration"""
-        logger.info(f"Initializing audio processor: {audio_processor}")
+    def _init_audio_processors(self, model_path):
+        """Initialize audio processors - WavLM only"""
+        logger.info("Initializing audio processor: wavlm (hardcoded)")
 
-        # Always load Whisper for backward compatibility
-        self.whisper_extractor = WhisperFeatureExtractor.from_pretrained(os.path.join(model_path, "audio"))
+        if not WAVLM_AVAILABLE:
+            logger.error("❌ WavLM not available - transformers[torch] required!")
+            logger.error("   Install with: pip install transformers[torch]")
+            raise ImportError("WavLM (Wav2Vec2) modules not available")
 
-        # Load WavLM if requested and available
-        if audio_processor == "wavlm":
-            if not WAVLM_AVAILABLE:
-                logger.error("WavLM requested but not available. Falling back to Whisper.")
-                self.audio_processor_type = "whisper"
-                self.audio_extractor = self.whisper_extractor
-            else:
-                logger.info("Loading WavLM model for streaming mode...")
-                self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-base-plus")
-                self.wavlm_feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("microsoft/wavlm-base-plus")
-                self.audio_extractor = self.wavlm_feature_extractor
-                logger.info("WavLM model loaded successfully")
-        else:
-            # Use Whisper (default for discrete mode)
-            self.audio_extractor = self.whisper_extractor
+        logger.info("Loading WavLM model for streaming mode...")
+        self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-base-plus")
+        self.wavlm_feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("microsoft/wavlm-base-plus")
+        self.audio_extractor = self.wavlm_feature_extractor
+        logger.info("✅ WavLM model loaded successfully")
 
-    def process_audio_with_whisper(self, audio_samples, sample_rate=16000):
-        """Process audio using Whisper feature extractor (existing method)"""
-        # Convert to format expected by Whisper
-        if isinstance(audio_samples, np.ndarray):
-            if audio_samples.dtype != np.float32:
-                audio_samples = audio_samples.astype(np.float32)
-
-        # Use existing Whisper processing
-        inputs = self.whisper_extractor(
-            audio_samples,
-            sampling_rate=sample_rate,
-            return_tensors="pt"
-        )
-        return inputs
-
-    def process_audio_with_wavlm(self, audio_samples, sample_rate=16000):
-        """Process audio using WavLM for streaming mode"""
-        if not hasattr(self, 'wavlm_model'):
-            logger.error("WavLM not initialized. Falling back to Whisper.")
-            return self.process_audio_with_whisper(audio_samples, sample_rate)
-
+    def process_audio_streaming(self, audio_samples, sample_rate=16000):
+        """Process audio using WavLM (only encoder supported)"""
         # Convert to format expected by WavLM
         if isinstance(audio_samples, np.ndarray):
             if audio_samples.dtype != np.float32:
@@ -315,13 +265,6 @@ class ModelWorker:
             "input_features": outputs.last_hidden_state,
             "attention_mask": inputs.get("attention_mask", None)
         }
-
-    def process_audio_streaming(self, audio_samples, sample_rate=16000):
-        """Process audio for streaming mode using configured processor"""
-        if self.audio_processor_type == "wavlm":
-            return self.process_audio_with_wavlm(audio_samples, sample_rate)
-        else:
-            return self.process_audio_with_whisper(audio_samples, sample_rate)
 
     def register_to_controller(self):
         logger.info("Register to controller")
@@ -420,27 +363,16 @@ class ModelWorker:
         input_ids = torch.LongTensor(input_ids).unsqueeze(0)
 
         if audios:
-            if self.audio_processor_type == "wavlm":
-                # WavLM expects raw audio waveform, not mel-spectrograms
-                speech_inputs = self.audio_extractor(
-                    audios,  # List of raw waveforms (numpy arrays)
-                    sampling_rate=16000,
-                    return_attention_mask=True,
-                    return_tensors="pt"
-                )
-                # WavLM feature extractor returns input_values (raw audio)
-                speech_values = speech_inputs.input_values
-                speech_mask = speech_inputs.attention_mask
-            else:
-                # Whisper: mel-spectrogram extraction (existing code)
-                speech_inputs = self.audio_extractor(
-                    audios,
-                    sampling_rate=self.audio_extractor.sampling_rate,
-                    return_attention_mask=True,
-                    return_tensors="pt"
-                )
-                speech_values = speech_inputs.input_features  # Mel-spectrograms
-                speech_mask = speech_inputs.attention_mask
+            # WavLM expects raw audio waveform (not mel-spectrograms)
+            speech_inputs = self.audio_extractor(
+                audios,  # List of raw waveforms (numpy arrays)
+                sampling_rate=16000,
+                return_attention_mask=True,
+                return_tensors="pt"
+            )
+            # WavLM feature extractor returns input_values (raw audio)
+            speech_values = speech_inputs.input_values
+            speech_mask = speech_inputs.attention_mask
         else:
             speech_values, speech_mask = None, None
 
@@ -744,20 +676,19 @@ async def handle_audio_chunk(session_id: str, audio_chunk: bytes):
     # Add to rolling buffer
     session["audio_buffer"].add_audio_chunk(audio_chunk)
 
-    # Process with configured audio processor for streaming mode
-    if worker.audio_processor_type == "wavlm":
-        # Get recent audio window for incremental WavLM processing
-        recent_window = session["audio_buffer"].get_current_window(duration_seconds=3.0)
+    # Process with WavLM (only audio processor supported)
+    # Get recent audio window for incremental WavLM processing
+    recent_window = session["audio_buffer"].get_current_window(duration_seconds=3.0)
 
-        # Process with WavLM if we have enough audio
-        if len(recent_window) > 0:
-            try:
-                audio_features = worker.process_audio_streaming(recent_window, sample_rate=16000)
-                # Store features in session cache for trigger processing
-                session["model_cache"]["recent_features"] = audio_features
-                logger.debug(f"[WEBSOCKET] 🔊 WavLM processed {len(recent_window)} samples for session {session_id}")
-            except Exception as e:
-                logger.error(f"[WEBSOCKET] ❌ WavLM processing error for session {session_id}: {e}")
+    # Process with WavLM if we have enough audio
+    if len(recent_window) > 0:
+        try:
+            audio_features = worker.process_audio_streaming(recent_window, sample_rate=16000)
+            # Store features in session cache for trigger processing
+            session["model_cache"]["recent_features"] = audio_features
+            logger.debug(f"[WEBSOCKET] 🔊 WavLM processed {len(recent_window)} samples for session {session_id}")
+        except Exception as e:
+            logger.error(f"[WEBSOCKET] ❌ WavLM processing error for session {session_id}: {e}")
 
     logger.debug(f"[WEBSOCKET] 📊 Session {session_id}: Added {len(audio_chunk)} bytes, "
                 f"total samples: {session['audio_buffer'].total_samples_received}")
@@ -782,15 +713,24 @@ async def handle_manual_trigger(session_id: str):
         await model_semaphore.acquire()
 
         try:
-            # Get current audio context window (30s)
+            # Get current audio context window (30s) as raw PCM float32
             audio_window = session["audio_buffer"].get_current_window()
 
-            # Convert to WAV format (works for both Whisper and WavLM)
-            # get_input_params() will handle the appropriate extraction
-            audio_wav_bytes = convert_float32_to_wav(audio_window, sample_rate=16000)
-            audio_base64 = base64.b64encode(audio_wav_bytes).decode()
+            # Use cached WavLM features if available, otherwise process now
+            if "recent_features" in session["model_cache"]:
+                audio_features = session["model_cache"]["recent_features"]
+                logger.debug(f"[WEBSOCKET] Using cached WavLM features")
+            else:
+                logger.debug(f"[WEBSOCKET] Processing audio window with WavLM")
+                audio_features = worker.process_audio_streaming(audio_window, sample_rate=16000)
 
-            # Create messages structure similar to POST endpoint
+            # TODO: Pass audio_features directly to model inference
+            # For now, convert to WAV for compatibility with existing generate_stream
+            audio_wav_bytes = convert_float32_to_wav(audio_window, sample_rate=16000)
+
+            # Create messages structure - keep base64 for now until generate_stream supports raw PCM
+            # TODO: Refactor generate_stream to accept raw PCM audio features directly
+            audio_base64 = base64.b64encode(audio_wav_bytes).decode()
             messages = [
                 {
                     "role": "user",
@@ -867,9 +807,7 @@ if __name__ == "__main__":
     parser.add_argument("--limit-model-concurrency", type=int, default=5)
     parser.add_argument("--stream-interval", type=int, default=1)
     parser.add_argument("--no-register", action="store_true")
-    parser.add_argument("--audio-processor", type=str, default="whisper",
-                       choices=["whisper", "wavlm"],
-                       help="Audio processor to use: whisper (discrete) or wavlm (streaming)")
+    # Note: WavLM is now hardcoded in model config, no --audio-processor argument needed
     args = parser.parse_args()
     logger.info(f"args: {args}")
 
@@ -879,7 +817,6 @@ if __name__ == "__main__":
                          args.no_register,
                          args.model_path,
                          args.flow_path,
-                         args.model_name,
-                         args.audio_processor
+                         args.model_name
                          )
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

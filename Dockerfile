@@ -42,9 +42,6 @@ RUN apt-get update && apt-get install -y \
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
     ln -sf /usr/bin/python3 /usr/bin/python
 
-# Copy requirements first for better Docker caching
-COPY requirements.txt /app/
-
 # Note: pip already upgraded during Python 3.11 installation above
 
 # Install PyTorch with CUDA 12.1 support (compatible with CUDA 12.2)
@@ -107,14 +104,8 @@ RUN pip3 install --no-cache-dir \
     Cython \
     whisper==1.1.10
 
-# Skip requirements.txt to avoid conflicts
-# RUN pip3 install --no-cache-dir -r requirements.txt || true
-
 # Copy OpenS2S source code
 COPY . /app/
-
-# Create directories for models and cache
-RUN mkdir -p /app/models /app/cache
 
 # Set Python path to include src directory
 ENV PYTHONPATH=/app/src:/app
