@@ -30,7 +30,18 @@ MODELS_CONFIG = [
     }
 ]
 
-def download_model_if_needed(repo_id, local_path, description):
+def get_hf_token():
+    """Get HuggingFace token from HF_TOKEN environment variable."""
+    token = os.environ.get("HF_TOKEN")
+    if token:
+        print("🔑 Using HF_TOKEN from environment variable")
+        return token
+    else:
+        print("⚠️  No HF_TOKEN found - can only access public repos")
+        return None
+
+
+def download_model_if_needed(repo_id, local_path, description, hf_token=None):
     """Download HuggingFace model if it doesn't already exist."""
 
     if os.path.exists(local_path) and os.listdir(local_path):
@@ -46,11 +57,12 @@ def download_model_if_needed(repo_id, local_path, description):
         # Create parent directory if needed
         Path(local_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Download model
+        # Download model with token for private repo access
         snapshot_download(
             repo_id=repo_id,
             local_dir=local_path,
-            local_dir_use_symlinks=False
+            local_dir_use_symlinks=False,
+            token=hf_token  # Pass token for authentication
         )
 
         print(f"✅ Successfully downloaded {description}")
@@ -58,6 +70,8 @@ def download_model_if_needed(repo_id, local_path, description):
 
     except Exception as e:
         print(f"❌ Failed to download {description}: {e}")
+        if "401" in str(e) or "403" in str(e):
+            print("   💡 This is a private repo - ensure HF_TOKEN environment variable is set")
         return False
 
 def ensure_models_available():
@@ -69,9 +83,12 @@ def ensure_models_available():
     # Create models directory if it doesn't exist
     Path(MODELS_DIR).mkdir(parents=True, exist_ok=True)
 
+    # Get HuggingFace token from environment
+    hf_token = get_hf_token()
+
     success_count = 0
     for model_config in MODELS_CONFIG:
-        if download_model_if_needed(**model_config):
+        if download_model_if_needed(**model_config, hf_token=hf_token):
             success_count += 1
 
     if success_count == len(MODELS_CONFIG):

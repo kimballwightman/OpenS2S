@@ -52,12 +52,23 @@ docker rm opens2s-server 2>/dev/null || true
 # Run the container with host volume mount for models
 echo "🎯 Starting OpenS2S inference server..."
 echo "   Models directory: $HOST_MODELS_DIR (mounted to /models in container)"
+
+# Pass HF_TOKEN if set (for private repo access)
+if [ -n "$HF_TOKEN" ]; then
+    echo "   HF Token: ${HF_TOKEN:0:10}... (passed to container)"
+    HF_TOKEN_ARG="-e HF_TOKEN=$HF_TOKEN"
+else
+    echo "   ⚠️  No HF_TOKEN set - can only access public repos"
+    HF_TOKEN_ARG=""
+fi
+
 docker run -d \
     --name opens2s-server \
     --gpus all \
     --restart unless-stopped \
     -p 8000:8000 \
     -p 21001:21001 \
+    $HF_TOKEN_ARG \
     -v /tmp:/tmp \
     -v "$HOST_MODELS_DIR:/models" \
     --shm-size=2g \
