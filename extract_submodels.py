@@ -17,10 +17,10 @@ import sys
 import shutil
 from pathlib import Path
 
-# Add OpenS2S src to path
-sys.path.insert(0, './src')
+# Add current directory to path for src package imports
+sys.path.insert(0, '.')
 
-from modeling_omnispeech import OmniSpeechModel
+from src.modeling_omnispeech import OmniSpeechModel
 from transformers import AutoTokenizer
 from huggingface_hub import HfApi, create_repo
 
