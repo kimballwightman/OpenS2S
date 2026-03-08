@@ -68,13 +68,16 @@ print("   This will download ~15-20GB if not cached")
 print("   Loading on CPU to save GPU memory...")
 
 try:
-    # Load without device_map to prevent offloading to disk (meta tensors)
-    # Model is ~22GB, L4 has 24GB VRAM - should fit entirely in GPU memory
+    # Load on CPU with low memory usage mode to avoid OOM
+    # low_cpu_mem_usage=True keeps tensors as meta during init, materializes on access
+    # This allows extracting one component at a time within 16GB system RAM
     model = OmniSpeechModel.from_pretrained(
         ORIGINAL_REPO,
         torch_dtype=torch.bfloat16,
+        device_map="cpu",
+        low_cpu_mem_usage=True,
         trust_remote_code=True
-    ).to("cuda" if torch.cuda.is_available() else "cpu")
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(ORIGINAL_REPO, trust_remote_code=True)
 
@@ -97,6 +100,9 @@ print("\n💾 STEP 2: Extracting components to local directories...")
 print("\n   🎤 Extracting Audio Encoder...")
 try:
     os.makedirs(OUTPUT_DIRS["audio_encoder"], exist_ok=True)
+    # Materialize any meta tensors before saving
+    print("      Materializing weights from meta tensors...")
+    _ = model.audio_encoder_model.state_dict()  # Forces loading from disk into RAM
     # Use safe_serialization=False to handle shared tensors
     model.audio_encoder_model.save_pretrained(OUTPUT_DIRS["audio_encoder"], safe_serialization=False)
 
@@ -114,6 +120,9 @@ except Exception as e:
 print("\n   🧠 Extracting LLM...")
 try:
     os.makedirs(OUTPUT_DIRS["llm"], exist_ok=True)
+    # Materialize any meta tensors before saving
+    print("      Materializing weights from meta tensors...")
+    _ = model.llm_model.state_dict()  # Forces loading from disk into RAM
     model.llm_model.save_pretrained(OUTPUT_DIRS["llm"], safe_serialization=False, max_shard_size="5GB")
     tokenizer.save_pretrained(OUTPUT_DIRS["llm"])
 
@@ -131,6 +140,9 @@ except Exception as e:
 print("\n   🎵 Extracting TTS LM...")
 try:
     os.makedirs(OUTPUT_DIRS["tts"], exist_ok=True)
+    # Materialize any meta tensors before saving
+    print("      Materializing weights from meta tensors...")
+    _ = model.tts_lm_model.state_dict()  # Forces loading from disk into RAM
     model.tts_lm_model.save_pretrained(OUTPUT_DIRS["tts"], safe_serialization=False, max_shard_size="5GB")
     tokenizer.save_pretrained(OUTPUT_DIRS["tts"])
 
