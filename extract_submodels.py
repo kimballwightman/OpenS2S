@@ -113,7 +113,7 @@ except Exception as e:
 print("\n   🧠 Extracting LLM...")
 try:
     os.makedirs(OUTPUT_DIRS["llm"], exist_ok=True)
-    model.llm_model.save_pretrained(OUTPUT_DIRS["llm"], safe_serialization=True, max_shard_size="5GB")
+    model.llm_model.save_pretrained(OUTPUT_DIRS["llm"], safe_serialization=False, max_shard_size="5GB")
     tokenizer.save_pretrained(OUTPUT_DIRS["llm"])
 
     # Save LLM config separately
@@ -130,7 +130,7 @@ except Exception as e:
 print("\n   🎵 Extracting TTS LM...")
 try:
     os.makedirs(OUTPUT_DIRS["tts"], exist_ok=True)
-    model.tts_lm_model.save_pretrained(OUTPUT_DIRS["tts"], safe_serialization=True, max_shard_size="5GB")
+    model.tts_lm_model.save_pretrained(OUTPUT_DIRS["tts"], safe_serialization=False, max_shard_size="5GB")
     tokenizer.save_pretrained(OUTPUT_DIRS["tts"])
 
     # Save TTS config separately
@@ -152,15 +152,15 @@ try:
     model.config.save_pretrained(OUTPUT_DIRS["adapters"])
 
     # Extract adapter-specific parameters from model state_dict
+    # Use state_dict() instead of named_parameters() to load meta tensors from disk
     adapter_state = {}
-    for name, param in model.named_parameters():
+    print("      Loading full state dict (this loads meta tensors from disk)...")
+    full_state_dict = model.state_dict()
+
+    for name, param in full_state_dict.items():
         # Look for adapter-related parameters
         if any(keyword in name.lower() for keyword in ['adapter', 'projection', 'connector']):
-            # Skip meta tensors (offloaded to disk)
-            if param.device.type != 'meta':
-                adapter_state[name] = param.cpu()
-            else:
-                print(f"      Skipping meta tensor: {name}")
+            adapter_state[name] = param.cpu()
 
     if adapter_state:
         # Save adapter weights
