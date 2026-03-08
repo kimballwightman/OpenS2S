@@ -96,7 +96,8 @@ print("\n💾 STEP 2: Extracting components to local directories...")
 print("\n   🎤 Extracting Audio Encoder...")
 try:
     os.makedirs(OUTPUT_DIRS["audio_encoder"], exist_ok=True)
-    model.audio_encoder_model.save_pretrained(OUTPUT_DIRS["audio_encoder"])
+    # Use safe_serialization=False to handle shared tensors
+    model.audio_encoder_model.save_pretrained(OUTPUT_DIRS["audio_encoder"], safe_serialization=False)
 
     # Save audio encoder config separately
     if hasattr(model.config, 'audio_encoder_config'):
@@ -155,7 +156,11 @@ try:
     for name, param in model.named_parameters():
         # Look for adapter-related parameters
         if any(keyword in name.lower() for keyword in ['adapter', 'projection', 'connector']):
-            adapter_state[name] = param.cpu()
+            # Skip meta tensors (offloaded to disk)
+            if param.device.type != 'meta':
+                adapter_state[name] = param.cpu()
+            else:
+                print(f"      Skipping meta tensor: {name}")
 
     if adapter_state:
         # Save adapter weights
