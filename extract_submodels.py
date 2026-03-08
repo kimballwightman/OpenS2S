@@ -71,7 +71,7 @@ try:
     model = OmniSpeechModel.from_pretrained(
         ORIGINAL_REPO,
         torch_dtype=torch.bfloat16,
-        device_map="cpu",  # Keep on CPU to save GPU memory
+        device_map="auto",  # Use GPU - L4 has 24GB VRAM, enough for ~22GB model
         trust_remote_code=True
     )
 
