@@ -68,12 +68,13 @@ print("   This will download ~15-20GB if not cached")
 print("   Loading on CPU to save GPU memory...")
 
 try:
+    # Load without device_map to prevent offloading to disk (meta tensors)
+    # Model is ~22GB, L4 has 24GB VRAM - should fit entirely in GPU memory
     model = OmniSpeechModel.from_pretrained(
         ORIGINAL_REPO,
         torch_dtype=torch.bfloat16,
-        device_map="auto",  # Use GPU - L4 has 24GB VRAM, enough for ~22GB model
         trust_remote_code=True
-    )
+    ).to("cuda" if torch.cuda.is_available() else "cpu")
 
     tokenizer = AutoTokenizer.from_pretrained(ORIGINAL_REPO, trust_remote_code=True)
 
