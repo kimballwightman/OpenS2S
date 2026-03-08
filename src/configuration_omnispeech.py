@@ -20,23 +20,25 @@ class OmniSpeechConfig(PretrainedConfig):
         interleave_strategy="1:2",
         **kwargs
     ):
-        # Force WavLM as the only audio encoder (no fallbacks)
-        if isinstance(audio_encoder_config, dict):
-            # Ensure model_type is wavlm
-            if "model_type" not in audio_encoder_config or audio_encoder_config["model_type"] != "wavlm":
-                logger.warning(f"Audio encoder model_type was '{audio_encoder_config.get('model_type', 'None')}', forcing to 'wavlm'")
-                audio_encoder_config["model_type"] = "wavlm"
-
-            # Set WavLM defaults
-            audio_encoder_config.setdefault("hidden_size", 768)  # WavLM internal dimension
-            audio_encoder_config.setdefault("d_model", 1280)  # Output dimension after projection
-            audio_encoder_config.setdefault("num_hidden_layers", 12)
-            audio_encoder_config.setdefault("max_source_positions", 1500)
-            audio_encoder_config.setdefault("num_attention_heads", 12)
-            audio_encoder_config.setdefault("intermediate_size", 3072)
-            audio_encoder_config.setdefault("activation_function", "gelu")
-            audio_encoder_config.setdefault("dropout", 0.1)
-            audio_encoder_config.setdefault("attention_dropout", 0.1)
+        # COMMENTED OUT FOR EXTRACTION: Force WavLM as the only audio encoder (no fallbacks)
+        # This prevents loading the original Qwen2AudioEncoder from the checkpoint
+        # Uncomment after extraction is complete for inference
+        # if isinstance(audio_encoder_config, dict):
+        #     # Ensure model_type is wavlm
+        #     if "model_type" not in audio_encoder_config or audio_encoder_config["model_type"] != "wavlm":
+        #         logger.warning(f"Audio encoder model_type was '{audio_encoder_config.get('model_type', 'None')}', forcing to 'wavlm'")
+        #         audio_encoder_config["model_type"] = "wavlm"
+        #
+        #     # Set WavLM defaults
+        #     audio_encoder_config.setdefault("hidden_size", 768)  # WavLM internal dimension
+        #     audio_encoder_config.setdefault("d_model", 1280)  # Output dimension after projection
+        #     audio_encoder_config.setdefault("num_hidden_layers", 12)
+        #     audio_encoder_config.setdefault("max_source_positions", 1500)
+        #     audio_encoder_config.setdefault("num_attention_heads", 12)
+        #     audio_encoder_config.setdefault("intermediate_size", 3072)
+        #     audio_encoder_config.setdefault("activation_function", "gelu")
+        #     audio_encoder_config.setdefault("dropout", 0.1)
+        #     audio_encoder_config.setdefault("attention_dropout", 0.1)
 
         elif audio_encoder_config is None:
             logger.info("audio encoder config is None. Initializing with wavlm (hardcoded)")
