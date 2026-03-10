@@ -67,14 +67,27 @@ class WavLMEncoder(torch.nn.Module):
         self.max_source_positions = wavlm_config.max_source_positions if hasattr(wavlm_config, 'max_source_positions') else 1500
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path):
+    def from_pretrained(cls, model_name_or_path, **kwargs):
         """Load pretrained WavLM model from HuggingFace"""
-        config = Wav2Vec2Config.from_pretrained(model_name_or_path)
+        # Extract dtype if provided to apply to whole model
+        torch_dtype = kwargs.pop('torch_dtype', None)
+
+        # Load config and weights
+        config = Wav2Vec2Config.from_pretrained(model_name_or_path, **kwargs)
         model = cls(config)
 
-        # Load WavLM weights
-        pretrained = Wav2Vec2Model.from_pretrained(model_name_or_path)
+        # Load WavLM weights with kwargs (local_files_only, etc)
+        pretrained = Wav2Vec2Model.from_pretrained(
+            model_name_or_path,
+            torch_dtype=torch_dtype,
+            **kwargs
+        )
         model.wavlm = pretrained
+
+        # Apply dtype to adapter layers too
+        if torch_dtype is not None:
+            model.temporal_adapter = model.temporal_adapter.to(torch_dtype)
+            model.dimension_projection = model.dimension_projection.to(torch_dtype)
 
         return model
 
