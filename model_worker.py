@@ -37,6 +37,9 @@ from src.constants import WORKER_HEART_BEAT_INTERVAL
 from src.constants import DEFAULT_AUDIO_START_TOKEN, DEFAULT_AUDIO_END_TOKEN, DEFAULT_TTS_START_TOKEN
 from src.constants import DEFAULT_AUDIO_TOKEN, AUDIO_TOKEN_INDEX
 from src.modeling_omnispeech import OmniSpeechModel
+from src.configuration_omnispeech import OmniSpeechConfig
+from src.modeling_audio_encoder import WavLMEncoder
+from src.modeling_tts_lm import Qwen3ForCausalLM
 from src.utils import get_waveform
 # Note: WhisperFeatureExtractor removed - WavLM processes raw audio directly
 
@@ -140,13 +143,6 @@ def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path)
     logger.info(f"   TTS: {tts_path}")
     logger.info(f"   Adapters: {adapters_path}")
 
-    # Import required modules
-    import sys
-    sys.path.insert(0, './src')
-    from configuration_omnispeech import OmniSpeechConfig
-    from modeling_omnispeech import OmniSpeechModel
-    from modeling_tts_lm import TTS_LM_MAPPING
-
     # Step 1: Load configs from separate repos
     logger.info("\n📋 Step 1: Loading configs...")
     config = OmniSpeechConfig.from_separate_repos(
@@ -175,7 +171,6 @@ def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path)
 
     # Load Audio Encoder (WavLMEncoder from repo)
     logger.info("   🎤 Loading WavLM audio encoder...")
-    from modeling_audio_encoder import WavLMEncoder
     model.audio_encoder_model = WavLMEncoder.from_pretrained(
         audio_encoder_path,
         torch_dtype=torch.bfloat16,
@@ -218,7 +213,6 @@ def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path)
 
     # Load TTS LM
     logger.info("   🎵 Loading TTS LM...")
-    from modeling_tts_lm import Qwen3ForCausalLM
     model.tts_lm_model = Qwen3ForCausalLM.from_pretrained(
         tts_path,
         torch_dtype=torch.bfloat16,
