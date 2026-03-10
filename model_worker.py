@@ -114,80 +114,143 @@ def pretty_print_semaphore(semaphore):
         return "None"
     return f"Semaphore(value={semaphore._value}, locked={semaphore.locked()})"
 
-def load_pretrained_model(model_path):
+def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path):
     """
-    Load OmniSpeech model with optional GPTQ-quantized LLM.
+    Load OmniSpeech model from 4 separate HuggingFace repos with WavLM audio encoder.
 
-    If GPTQ-quantized LLM exists at /models/SalesS2S-llm-gptq/, it will be used.
-    Otherwise, loads the full precision model from model_path.
+    This function manually loads each sub-model from separate repos and composes them
+    into a single OmniSpeechModel instance.
 
     Args:
-        model_path: Path to pretrained model (should have wavlm config in config.json)
+        audio_encoder_path: Path to WavLM audio encoder repo (local or HF)
+        llm_path: Path to Qwen3 7B LLM repo
+        tts_path: Path to Qwen3 2B TTS repo
+        adapters_path: Path to adapter parameters repo
+
+    Returns:
+        tokenizer, tts_tokenizer, model, generation_config, tts_generation_config
 
     Memory Profile:
         - With GPTQ-quantized LLM (8-bit): ~12-14GB
-        - Original (bf16): ~20-24GB
-
-    Note: WavLM audio encoder is now hardcoded in model config (no runtime override).
+        - Full precision (bf16): ~20-24GB
     """
-    # Check for GPTQ-quantized LLM
+    logger.info("📦 Loading OmniSpeech model from separate repos...")
+    logger.info(f"   Audio Encoder: {audio_encoder_path}")
+    logger.info(f"   LLM: {llm_path}")
+    logger.info(f"   TTS: {tts_path}")
+    logger.info(f"   Adapters: {adapters_path}")
+
+    # Import required modules
+    import sys
+    sys.path.insert(0, './src')
+    from configuration_omnispeech import OmniSpeechConfig
+    from modeling_omnispeech import OmniSpeechModel
+    from modeling_tts_lm import TTS_LM_MAPPING
+
+    # Step 1: Load configs from separate repos
+    logger.info("\n📋 Step 1: Loading configs...")
+    config = OmniSpeechConfig.from_separate_repos(
+        audio_encoder_repo=audio_encoder_path,
+        llm_repo=llm_path,
+        tts_repo=tts_path,
+        adapter_repo=adapters_path
+    )
+    logger.info("   ✅ Configs loaded (WavLM audio encoder forced)")
+
+    # Load tokenizers
+    tokenizer = AutoTokenizer.from_pretrained(llm_path, local_files_only=True)
+    tts_tokenizer = AutoTokenizer.from_pretrained(tts_path, local_files_only=True)
+
+    # Load generation configs
+    generation_config = GenerationConfig.from_pretrained(llm_path, local_files_only=True)
+    tts_generation_config = GenerationConfig.from_pretrained(tts_path, local_files_only=True)
+
+    # Step 2: Create OmniSpeechModel instance (structure only, random weights)
+    logger.info("\n🏗️  Step 2: Creating OmniSpeechModel instance...")
+    model = OmniSpeechModel(config)
+    logger.info("   ✅ Model structure created")
+
+    # Step 3: Load sub-model weights individually
+    logger.info("\n💾 Step 3: Loading sub-model weights...")
+
+    # Load Audio Encoder (WavLMEncoder weights)
+    logger.info("   🎤 Loading WavLM audio encoder...")
+    audio_encoder_state = torch.load(
+        os.path.join(audio_encoder_path, "pytorch_model.bin"),
+        map_location="cpu"
+    )
+    model.audio_encoder_model.load_state_dict(audio_encoder_state)
+    model.audio_encoder_model.to(torch.bfloat16)
+    logger.info("   ✅ Audio encoder loaded (~768MB)")
+
+    # Check for GPTQ-quantized LLM first
     gptq_llm_path = "/models/SalesS2S-llm-gptq"
     use_gptq_llm = os.path.exists(gptq_llm_path) and os.listdir(gptq_llm_path)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
-    tts_tokenizer = AutoTokenizer.from_pretrained(os.path.join(model_path, "tts"), local_files_only=True)
-    generation_config = GenerationConfig.from_pretrained(model_path, local_files_only=True)
-    tts_generation_config = GenerationConfig.from_pretrained(os.path.join(model_path, "tts"), local_files_only=True)
-
-    logger.info(f"📦 Loading OmniSpeech model from {model_path}...")
-
-    # Load base model
-    model = OmniSpeechModel.from_pretrained(
-        model_path,
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-        local_files_only=True,
-        low_cpu_mem_usage=True
-    )
-
-    logger.info("✅ Base model loaded from disk")
-
-    # Replace LLM with GPTQ-quantized version if available
+    # Load LLM
+    logger.info("   🧠 Loading LLM...")
     if use_gptq_llm:
-        logger.info(f"🔄 Loading GPTQ-quantized LLM from {gptq_llm_path}...")
-
+        logger.info("   🔄 Using GPTQ-quantized LLM...")
         try:
             from auto_gptq import AutoGPTQForCausalLM
-
-            # Load quantized LLM
-            quantized_llm = AutoGPTQForCausalLM.from_quantized(
+            llm = AutoGPTQForCausalLM.from_quantized(
                 gptq_llm_path,
                 device="cuda:0",
                 use_safetensors=True
             )
-
-            # Replace LLM in model
-            del model.llm_model
-            model.llm_model = quantized_llm
-
-            logger.info("✅ GPTQ-quantized LLM loaded (8-bit, ~8-10GB)")
-            logger.info("   Expected total VRAM: ~12-14GB")
-
-        except ImportError:
-            logger.warning("⚠️  AutoGPTQ not installed, using full precision LLM")
-            logger.info("   Install with: pip install auto-gptq")
+            model.llm_model = llm
+            logger.info("   ✅ GPTQ LLM loaded (8-bit, ~8GB)")
         except Exception as e:
-            logger.warning(f"⚠️  Failed to load GPTQ LLM: {e}")
-            logger.info("   Using full precision LLM")
-    else:
-        logger.info("💡 No GPTQ-quantized LLM found")
-        logger.info("   Using full precision LLM (~20-24GB total VRAM)")
-        logger.info("   Run quantize_llm_gptq.py to create quantized version")
+            logger.warning(f"   ⚠️  GPTQ load failed: {e}, using full precision")
+            use_gptq_llm = False
 
-    # Verify WavLM encoder is loaded (should be from config)
-    logger.info("✅ Model loading complete")
-    logger.info(f"   Audio Encoder: {type(model.audio_encoder_model).__name__}")
+    if not use_gptq_llm:
+        # Load full precision LLM
+        llm = AutoModelForCausalLM.from_pretrained(
+            llm_path,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            local_files_only=True,
+            low_cpu_mem_usage=True
+        )
+        model.llm_model = llm
+        logger.info("   ✅ LLM loaded (bf16, ~14GB)")
+
+    # Load TTS LM
+    logger.info("   🎵 Loading TTS LM...")
+    tts_model = TTS_LM_MAPPING[config.tts_lm_config.model_type](config.tts_lm_config)
+
+    # Load pretrained weights into TTS model
+    tts_state = torch.load(
+        os.path.join(tts_path, "pytorch_model.bin"),
+        map_location="cpu"
+    )
+    tts_model.load_state_dict(tts_state, strict=False)
+    tts_model.to(torch.bfloat16)
+
+    model.tts_lm_model = tts_model
+    logger.info("   ✅ TTS LM loaded (~4GB)")
+
+    # Step 4: Load adapter weights
+    logger.info("\n🔌 Step 4: Loading adapter parameters...")
+    adapter_weights_path = os.path.join(adapters_path, "adapter_weights.pt")
+    adapter_state = torch.load(adapter_weights_path, map_location="cpu")
+
+    # Load adapter parameters into model
+    missing, unexpected = model.load_state_dict(adapter_state, strict=False)
+    logger.info(f"   ✅ Loaded {len(adapter_state)} adapter parameters (~146MB)")
+
+    if missing:
+        logger.info(f"   ℹ️  Missing keys (expected): {len(missing)}")
+    if unexpected:
+        logger.warning(f"   ⚠️  Unexpected keys: {unexpected}")
+
+    # Summary
+    logger.info("\n✅ Model loading complete!")
+    logger.info(f"   Audio Encoder: WavLMEncoder (768 hidden, 12 layers)")
     logger.info(f"   LLM: {'GPTQ-quantized (8-bit)' if use_gptq_llm else 'Full precision (bf16)'}")
+    logger.info(f"   TTS: Qwen3 2B (bf16)")
+    logger.info(f"   Adapters: Loaded from {adapters_path}")
     logger.info(f"   Ready for inference")
 
     return tokenizer, tts_tokenizer, model, generation_config, tts_generation_config
@@ -202,7 +265,8 @@ def load_flow_model(flow_path):
 
 class ModelWorker:
     def __init__(self, controller_addr, worker_addr,
-                 worker_id, no_register, model_path,
+                 worker_id, no_register, audio_encoder_path,
+                 llm_path, tts_path, adapters_path,
                  flow_path, model_name):
         self.controller_addr = controller_addr
         self.worker_addr = worker_addr
@@ -210,12 +274,14 @@ class ModelWorker:
         self.model_name = model_name
         self.audio_processor_type = "wavlm"  # Hardcoded - WavLM is the only encoder now
 
-        # Load main models (WavLM encoder from config)
+        # Load main models from separate repos (WavLM + LLM + TTS + Adapters)
         self.tokenizer, self.tts_tokenizer, self.model, self.generation_config,\
-            self.tts_generation_config = load_pretrained_model(model_path)
+            self.tts_generation_config = load_pretrained_model(
+                audio_encoder_path, llm_path, tts_path, adapters_path
+            )
 
-        # Initialize audio processors (WavLM only)
-        self._init_audio_processors(model_path)
+        # Initialize audio processors (WavLM only) - loads microsoft/wavlm-base-plus for streaming
+        self._init_audio_processors()
 
         self.audio_decoder = load_flow_model(flow_path)
         self.system_prompt = "You are a helpful assistant."
@@ -227,7 +293,7 @@ class ModelWorker:
                 target=heart_beat_worker, args=(self,), daemon=True)
             self.heart_beat_thread.start()
 
-    def _init_audio_processors(self, model_path):
+    def _init_audio_processors(self):
         """Initialize audio processors - WavLM only"""
         logger.info("Initializing audio processor: wavlm (hardcoded)")
 
@@ -802,12 +868,19 @@ if __name__ == "__main__":
     parser.add_argument("--controller-address", type=str,
         default="http://localhost:21001")
     parser.add_argument("--model-name", type=str, default="omnispeech")
-    parser.add_argument("--model-path", type=str, default="./OpenS2S")
-    parser.add_argument("--flow-path", type=str, default="./glm-4-voice-decoder")
+    parser.add_argument("--audio-encoder-path", type=str, required=True,
+        help="Path to WavLM audio encoder repo")
+    parser.add_argument("--llm-path", type=str, required=True,
+        help="Path to Qwen3 7B LLM repo")
+    parser.add_argument("--tts-path", type=str, required=True,
+        help="Path to Qwen3 2B TTS repo")
+    parser.add_argument("--adapters-path", type=str, required=True,
+        help="Path to adapter parameters repo")
+    parser.add_argument("--flow-path", type=str, required=True,
+        help="Path to GLM-4 Voice Decoder repo")
     parser.add_argument("--limit-model-concurrency", type=int, default=5)
     parser.add_argument("--stream-interval", type=int, default=1)
     parser.add_argument("--no-register", action="store_true")
-    # Note: WavLM is now hardcoded in model config, no --audio-processor argument needed
     args = parser.parse_args()
     logger.info(f"args: {args}")
 
@@ -815,7 +888,10 @@ if __name__ == "__main__":
                          args.worker_address,
                          worker_id,
                          args.no_register,
-                         args.model_path,
+                         args.audio_encoder_path,
+                         args.llm_path,
+                         args.tts_path,
+                         args.adapters_path,
                          args.flow_path,
                          args.model_name
                          )

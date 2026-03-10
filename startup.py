@@ -19,9 +19,24 @@ from pathlib import Path
 MODELS_DIR = "/models"
 MODELS_CONFIG = [
     {
-        "repo_id": "kimballwightman/SalesS2S",
-        "local_path": f"{MODELS_DIR}/SalesS2S",
-        "description": "OpenS2S main model"
+        "repo_id": "kimballwightman/SalesS2S-AudioEncoder",
+        "local_path": f"{MODELS_DIR}/SalesS2S-AudioEncoder",
+        "description": "WavLM Audio Encoder"
+    },
+    {
+        "repo_id": "kimballwightman/SalesS2S-LLM",
+        "local_path": f"{MODELS_DIR}/SalesS2S-LLM",
+        "description": "Qwen3 7B LLM"
+    },
+    {
+        "repo_id": "kimballwightman/SalesS2S-TTS",
+        "local_path": f"{MODELS_DIR}/SalesS2S-TTS",
+        "description": "Qwen3 2B TTS"
+    },
+    {
+        "repo_id": "kimballwightman/SalesS2S-Adapters",
+        "local_path": f"{MODELS_DIR}/SalesS2S-Adapters",
+        "description": "Adapter Parameters"
     },
     {
         "repo_id": "kimballwightman/SalesS2S-Voice-Decoder",
@@ -123,25 +138,33 @@ def start_controller():
     return controller_process
 
 def start_model_worker():
-    """Start the OpenS2S model worker with correct model paths."""
+    """Start the OpenS2S model worker with separate model paths."""
 
     print("🎯 Starting OpenS2S model worker...")
 
-    # Model paths for runtime - using private repos
-    opens2s_model_path = f"{MODELS_DIR}/SalesS2S"
-    decoder_model_path = f"{MODELS_DIR}/SalesS2S-Voice-Decoder"
+    # Model paths for runtime - using separate repos
+    audio_encoder_path = f"{MODELS_DIR}/SalesS2S-AudioEncoder"
+    llm_path = f"{MODELS_DIR}/SalesS2S-LLM"
+    tts_path = f"{MODELS_DIR}/SalesS2S-TTS"
+    adapters_path = f"{MODELS_DIR}/SalesS2S-Adapters"
+    flow_path = f"{MODELS_DIR}/SalesS2S-Voice-Decoder"
 
-    print(f"   Using OpenS2S model: {opens2s_model_path}")
-    print(f"   Using Voice Decoder: {decoder_model_path}")
+    print(f"   Using Audio Encoder: {audio_encoder_path}")
+    print(f"   Using LLM: {llm_path}")
+    print(f"   Using TTS: {tts_path}")
+    print(f"   Using Adapters: {adapters_path}")
+    print(f"   Using Voice Decoder: {flow_path}")
 
-    # Build command arguments - REMOVED --no-register so worker connects to controller
-    # Note: WavLM is now hardcoded in model config, no need for --audio-processor flag
+    # Build command arguments with separate model paths
     cmd = [
         "python3", "model_worker.py",
         "--host", "0.0.0.0",
         "--port", "8000",
-        "--model-path", opens2s_model_path,
-        "--flow-path", decoder_model_path,
+        "--audio-encoder-path", audio_encoder_path,
+        "--llm-path", llm_path,
+        "--tts-path", tts_path,
+        "--adapters-path", adapters_path,
+        "--flow-path", flow_path,
         "--controller-address", "http://localhost:21001",
         "--worker-address", "http://localhost:8000"
     ]
