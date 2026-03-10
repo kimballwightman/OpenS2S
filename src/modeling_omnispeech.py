@@ -32,7 +32,7 @@ class OmniSpeechModel(PreTrainedModel):
     config_class = OmniSpeechConfig
     base_model_prefix = "omnispeech"
 
-    def __init__(self, config: OmniSpeechConfig):
+    def __init__(self, config: OmniSpeechConfig, defer_submodel_init: bool = False):
         super().__init__(config)
         self.audio_encoder_config = config.audio_encoder_config
         self.llm_config = config.llm_config
@@ -42,15 +42,24 @@ class OmniSpeechModel(PreTrainedModel):
         self.llm_weight = 1.0
         self.tts_weight = 1.0
 
-        self.audio_encoder_model = AUDIO_ENCODER_MAPPING[self.audio_encoder_config.model_type](self.audio_encoder_config)
-        # self.llm_model = MODEL_FOR_CAUSAL_LM_MAPPING_NAMES[self.llm_config.model_type](self.llm_config)
-        self.llm_model = AutoModelForCausalLM.from_config(self.llm_config)
-        self.tts_lm_model = TTS_LM_MAPPING[self.tts_lm_config.model_type](self.tts_lm_config)
+        if defer_submodel_init:
+            # Create placeholder sub-models that will be loaded externally
+            # This avoids initializing billions of random parameters
+            self.audio_encoder_model = None
+            self.llm_model = None
+            self.tts_lm_model = None
+        else:
+            # Original behavior: initialize sub-models from config
+            self.audio_encoder_model = AUDIO_ENCODER_MAPPING[self.audio_encoder_config.model_type](self.audio_encoder_config)
+            # self.llm_model = MODEL_FOR_CAUSAL_LM_MAPPING_NAMES[self.llm_config.model_type](self.llm_config)
+            self.llm_model = AutoModelForCausalLM.from_config(self.llm_config)
+            self.tts_lm_model = TTS_LM_MAPPING[self.tts_lm_config.model_type](self.tts_lm_config)
 
-        if config.lora_config:
-            self.lora_config = config.lora_config
-            self.llm_model = LoraModel(self.llm_model, self.lora_config, "default")
+            if config.lora_config:
+                self.lora_config = config.lora_config
+                self.llm_model = LoraModel(self.llm_model, self.lora_config, "default")
 
+        # Always initialize adapter layers (these are small)
         self.audio_adapter = Subsampler(self.audio_encoder_config.d_model, config.adapter_inner_dim,
             self.llm_config.hidden_size, config.conv_kernel_sizes)
 

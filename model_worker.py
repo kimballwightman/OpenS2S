@@ -25,7 +25,7 @@ import uvicorn
 import numpy as np
 from functools import partial
 
-from transformers import AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig, AutoModelForCausalLM
 from transformers import TextIteratorStreamer
 from transformers import GenerationConfig
 from transformers.generation.streamers import BaseStreamer
@@ -161,10 +161,11 @@ def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path)
     generation_config = GenerationConfig.from_pretrained(llm_path, local_files_only=True)
     tts_generation_config = GenerationConfig.from_pretrained(tts_path, local_files_only=True)
 
-    # Step 2: Create OmniSpeechModel instance (structure only, random weights)
+    # Step 2: Create OmniSpeechModel instance (defer sub-model init to avoid random weights)
     logger.info("\n🏗️  Step 2: Creating OmniSpeechModel instance...")
-    model = OmniSpeechModel(config)
-    logger.info("   ✅ Model structure created")
+    # Pass defer_submodel_init=True to avoid initializing 7B+ random parameters
+    model = OmniSpeechModel(config, defer_submodel_init=True)
+    logger.info("   ✅ Model structure created (sub-models deferred)")
 
     # Step 3: Load sub-model weights individually
     logger.info("\n💾 Step 3: Loading sub-model weights...")
