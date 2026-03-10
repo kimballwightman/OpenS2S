@@ -173,15 +173,15 @@ def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path)
     # Step 3: Load sub-model weights individually
     logger.info("\n💾 Step 3: Loading sub-model weights...")
 
-    # Load Audio Encoder (WavLMEncoder weights)
+    # Load Audio Encoder (WavLMEncoder from repo)
     logger.info("   🎤 Loading WavLM audio encoder...")
-    audio_encoder_state = torch.load(
-        os.path.join(audio_encoder_path, "pytorch_model.bin"),
-        map_location="cpu"
+    from modeling_audio_encoder import WavLMEncoder
+    model.audio_encoder_model = WavLMEncoder.from_pretrained(
+        audio_encoder_path,
+        torch_dtype=torch.bfloat16,
+        local_files_only=True
     )
-    model.audio_encoder_model.load_state_dict(audio_encoder_state)
-    model.audio_encoder_model.to(torch.bfloat16)
-    logger.info("   ✅ Audio encoder loaded (~768MB)")
+    logger.info("   ✅ Audio encoder loaded (~189MB)")
 
     # Check for GPTQ-quantized LLM first
     gptq_llm_path = "/models/SalesS2S-llm-gptq"
@@ -218,17 +218,12 @@ def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path)
 
     # Load TTS LM
     logger.info("   🎵 Loading TTS LM...")
-    tts_model = TTS_LM_MAPPING[config.tts_lm_config.model_type](config.tts_lm_config)
-
-    # Load pretrained weights into TTS model
-    tts_state = torch.load(
-        os.path.join(tts_path, "pytorch_model.bin"),
-        map_location="cpu"
+    from modeling_tts_lm import Qwen3ForCausalLM
+    model.tts_lm_model = Qwen3ForCausalLM.from_pretrained(
+        tts_path,
+        torch_dtype=torch.bfloat16,
+        local_files_only=True
     )
-    tts_model.load_state_dict(tts_state, strict=False)
-    tts_model.to(torch.bfloat16)
-
-    model.tts_lm_model = tts_model
     logger.info("   ✅ TTS LM loaded (~4GB)")
 
     # Step 4: Load adapter weights
