@@ -431,6 +431,10 @@ class OmniSpeechModel(PreTrainedModel):
                     eos_token_id=eos_token_id,
                     do_sample=False
                 )
+
+            # Normalize eos_token_id to list (can be int or list in transformers)
+            if not isinstance(eos_token_id, list):
+                eos_token_id = [eos_token_id]
             if tts_generation_config is not None:
                 tts_max_new_tokens = tts_generation_config.max_new_tokens
                 if tts_max_new_tokens is None:
