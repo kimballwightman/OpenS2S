@@ -177,7 +177,9 @@ def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path)
         torch_dtype=torch.bfloat16,
         local_files_only=True
     )
-    logger.info("   ✅ Audio encoder loaded (~189MB)")
+    # Move audio encoder to GPU
+    model.audio_encoder_model = model.audio_encoder_model.to("cuda")
+    logger.info("   ✅ Audio encoder loaded (~189MB) and moved to GPU")
 
     # Check for GPTQ-quantized LLM first
     gptq_llm_path = "/models/SalesS2S-llm-gptq"
@@ -219,7 +221,9 @@ def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path)
         torch_dtype=torch.bfloat16,
         local_files_only=True
     )
-    logger.info("   ✅ TTS LM loaded (~4GB)")
+    # Move TTS model to GPU
+    model.tts_lm_model = model.tts_lm_model.to("cuda")
+    logger.info("   ✅ TTS LM loaded (~4GB) and moved to GPU")
 
     # Step 4: Load adapter weights
     logger.info("\n🔌 Step 4: Loading adapter parameters...")
@@ -234,6 +238,12 @@ def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path)
         logger.info(f"   ℹ️  Missing keys (expected): {len(missing)}")
     if unexpected:
         logger.warning(f"   ⚠️  Unexpected keys: {unexpected}")
+
+    # Move adapter layers to GPU (audio_adapter, llm2tts, llm_ln)
+    model.audio_adapter = model.audio_adapter.to("cuda")
+    model.llm2tts = model.llm2tts.to("cuda")
+    model.llm_ln = model.llm_ln.to("cuda")
+    logger.info("   ✅ Adapter layers moved to GPU")
 
     # Summary
     logger.info("\n✅ Model loading complete!")
