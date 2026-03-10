@@ -239,11 +239,11 @@ def load_pretrained_model(audio_encoder_path, llm_path, tts_path, adapters_path)
     if unexpected:
         logger.warning(f"   ⚠️  Unexpected keys: {unexpected}")
 
-    # Move adapter layers to GPU (audio_adapter, llm2tts, llm_ln)
-    model.audio_adapter = model.audio_adapter.to("cuda")
-    model.llm2tts = model.llm2tts.to("cuda")
-    model.llm_ln = model.llm_ln.to("cuda")
-    logger.info("   ✅ Adapter layers moved to GPU")
+    # Move adapter layers to GPU AND convert to BFloat16 (to match sub-models)
+    model.audio_adapter = model.audio_adapter.to(device="cuda", dtype=torch.bfloat16)
+    model.llm2tts = model.llm2tts.to(device="cuda", dtype=torch.bfloat16)
+    model.llm_ln = model.llm_ln.to(device="cuda", dtype=torch.bfloat16)
+    logger.info("   ✅ Adapter layers moved to GPU and converted to BFloat16")
 
     # Summary
     logger.info("\n✅ Model loading complete!")
